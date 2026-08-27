@@ -13,7 +13,7 @@ import { writeFileSync } from "node:fs";
 const argv = process.argv.slice(2);
 
 if (argv.includes("--version")) {
-  process.stdout.write("9.9.9-fake\n");
+  process.stdout.write(`${process.env.FAKE_AGY_VERSION || "9.9.9-fake"}\n`);
   process.exit(0);
 }
 
@@ -49,5 +49,7 @@ if (mode === "auth") {
 // success
 if (logFile) writeFileSync(logFile, baseLog);
 const echo = String(prompt || "").slice(0, 60).replace(/\s+/g, " ");
-process.stdout.write(`Gemini 3 (fake) reply. I received: "${echo}". Verdict: looks good.\n`);
+const model = valueOf("--model");
+const modelNote = model ? ` model=${model}.` : "";
+process.stdout.write(`Gemini 3 (fake) reply.${modelNote} I received: "${echo}". Verdict: looks good.\n`);
 process.exit(0);

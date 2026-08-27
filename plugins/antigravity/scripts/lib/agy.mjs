@@ -18,6 +18,7 @@ import { openSync, readFileSync, existsSync } from "node:fs";
  * @param {string}  [opts.conversationId]  --conversation <id>
  * @param {string}  [opts.logFile]         --log-file <path>
  * @param {string}  [opts.printTimeout]    --print-timeout <go-dur>, e.g. "10m"
+ * @param {string}  [opts.model]           --model <slug>, e.g. "gemini-3.1-pro-high"
  * @returns {string[]}
  */
 export function buildPrintArgs(opts) {
@@ -31,8 +32,35 @@ export function buildPrintArgs(opts) {
   if (opts.conversationId) args.push("--conversation", opts.conversationId);
   if (opts.logFile) args.push("--log-file", opts.logFile);
   if (opts.printTimeout) args.push("--print-timeout", opts.printTimeout);
+  if (opts.model) args.push("--model", opts.model);
   args.push("-p", opts.prompt);
   return args;
+}
+
+// `--model`/`--effort` were silently ignored in headless `-p` runs before this
+// release (fixed upstream in 1.1.10 — see docs/antigravity-cli-reference.md).
+export const MIN_MODEL_FLAG_VERSION = "1.1.10";
+
+/** Parse a leading "X.Y.Z" out of an agy --version string (tolerates "-fake"/"-dev" suffixes). */
+function parseVersion(value) {
+  const m = typeof value === "string" ? value.match(/(\d+)\.(\d+)\.(\d+)/) : null;
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+}
+
+/**
+ * True when `version` is parseable and >= `minVersion` (both "X.Y.Z" strings).
+ * An unparseable/missing `version` (agy's own `--version` probe failed, or a
+ * future build changed the output format) fails CLOSED — false, not >= — so a
+ * flag gated on this doesn't get forwarded to a build we couldn't verify.
+ */
+export function isVersionAtLeast(version, minVersion) {
+  const v = parseVersion(version);
+  const min = parseVersion(minVersion);
+  if (!v || !min) return false;
+  for (let i = 0; i < 3; i += 1) {
+    if (v[i] !== min[i]) return v[i] > min[i];
+  }
+  return true;
 }
 
 /** Parse a Go duration string ("5m0s", "90s", "10m") to milliseconds. Fallback 5m. */
@@ -63,6 +91,13 @@ function readLogSafe(logFile) {
   return "";
 }
 
+function prepareSpawn(bin, args) {
+  if (typeof bin === "string" && (bin.endsWith(".mjs") || bin.endsWith(".js"))) {
+    return { bin: process.execPath, args: [bin, ...args] };
+  }
+  return { bin, args };
+}
+
 /**
  * Run agy print mode synchronously (foreground) with a hard watchdog timeout in
  * addition to agy's own --print-timeout.
@@ -71,13 +106,15 @@ function readLogSafe(logFile) {
  *             timedOut: boolean, logText: string, logFile: string|undefined, error?: string }}
  */
 export function runForeground({ bin, args, cwd, logFile, watchdogMs }) {
-  const res = spawnSync(bin, args, {
+  const target = prepareSpawn(bin, args);
+  const res = spawnSync(target.bin, target.args, {
     cwd,
     encoding: "utf8",
     timeout: watchdogMs,
     killSignal: "SIGKILL",
     maxBuffer: 256 * 1024 * 1024,
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
   });
 
   const timedOut = res.error && /ETIMEDOUT/i.test(String(res.error.code || res.error.message || ""));
@@ -100,11 +137,13 @@ export function runForeground({ bin, args, cwd, logFile, watchdogMs }) {
  * @returns {{ pid: number }}
  */
 export function spawnBackground({ bin, args, cwd, outputFile, errFile }) {
+  const target = prepareSpawn(bin, args);
   const out = openSync(outputFile, "a");
   const err = openSync(errFile, "a");
-  const child = spawn(bin, args, {
+  const child = spawn(target.bin, target.args, {
     cwd,
     detached: true,
+    windowsHide: true,
     stdio: ["ignore", out, err],
   });
   child.unref();
@@ -114,7 +153,8 @@ export function spawnBackground({ bin, args, cwd, outputFile, errFile }) {
 /** Quick `agy --version`. Returns version string or null. */
 export function agyVersion(bin) {
   try {
-    const res = spawnSync(bin, ["--version"], { encoding: "utf8", timeout: 15000 });
+    const target = prepareSpawn(bin, ["--version"]);
+    const res = spawnSync(target.bin, target.args, { encoding: "utf8", timeout: 15000, windowsHide: true });
     if (res.status === 0) return (res.stdout || res.stderr || "").trim().split(/\r?\n/)[0] || null;
   } catch {
     /* ignore */

@@ -20,6 +20,8 @@ import {
   goDurationToMs,
   agyVersion,
   readLogSafe,
+  isVersionAtLeast,
+  MIN_MODEL_FLAG_VERSION,
 } from "./lib/agy.mjs";
 import { scanAgyLog } from "./lib/logscan.mjs";
 import { resolveReviewTarget } from "./lib/git.mjs";
@@ -93,6 +95,11 @@ function cmdSetup(parsed) {
     report.nextSteps.push("Run `! agy` once to complete the browser sign-in, then you're ready.");
   } else {
     report.nextSteps.push("You're set. Try `/antigravity:review` or `/antigravity:delegate <task>`.");
+    if (!isVersionAtLeast(version, MIN_MODEL_FLAG_VERSION)) {
+      report.nextSteps.push(
+        `Run \`agy update\` to use --model overrides (found ${version || "unknown"}, need >= ${MIN_MODEL_FLAG_VERSION}).`,
+      );
+    }
   }
 
   if (hasFlag(parsed, "json")) {
@@ -142,11 +149,16 @@ function runAgyTask(parsed, { kind, title, prompt, readOnly, resume }) {
   const printTimeout = parsed.valued["print-timeout"] || "10m";
   const addDirs = [cwd, ...(parsed.repeated["add-dir"] || [])];
 
-  if (parsed.valued.model) {
-    // agy has no model flag; warn but continue. (See docs/antigravity-cli-reference.md)
-    process.stderr.write(
-      "[antigravity-plugin-cc] note: agy has no --model flag; set the default model with /model inside agy. Ignoring --model.\n",
-    );
+  let model = parsed.valued.model || null;
+  if (model) {
+    const version = agyVersion(bin.path);
+    if (!isVersionAtLeast(version, MIN_MODEL_FLAG_VERSION)) {
+      process.stderr.write(
+        `[antigravity-plugin-cc] note: --model needs agy >= ${MIN_MODEL_FLAG_VERSION} (found ${version || "unknown"}); ` +
+          "older builds silently ignore it in headless runs. Run `agy update`, or set the default with `/model` inside agy. Ignoring --model.\n",
+      );
+      model = null;
+    }
   }
 
   const finalPrompt = clampPrompt(prompt);
@@ -162,6 +174,7 @@ function runAgyTask(parsed, { kind, title, prompt, readOnly, resume }) {
     conversationId,
     logFile: job.paths.log,
     printTimeout,
+    model,
   });
 
   if (background) {
@@ -198,6 +211,19 @@ function runAgyTask(parsed, { kind, title, prompt, readOnly, resume }) {
     out(
       render.renderError(
         { kind: "backend", message: `Antigravity timed out after ${printTimeout}. Try --print-timeout 20m or run with --background.` },
+        { title, conversationId: job.conversationId, logFile: job.paths.log },
+      ),
+    );
+    return;
+  }
+
+  if (result.error) {
+    job.status = "failed";
+    job.error = result.error;
+    writeJob(job);
+    out(
+      render.renderError(
+        { kind: "backend", message: `Could not run agy: ${result.error}` },
         { title, conversationId: job.conversationId, logFile: job.paths.log },
       ),
     );

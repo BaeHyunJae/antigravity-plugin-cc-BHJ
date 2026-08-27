@@ -1,6 +1,6 @@
 ---
 description: Continue the most recent Antigravity (Gemini 3.5) conversation with a follow-up.
-argument-hint: "[--conversation <id>] [--background] [follow-up instruction]"
+argument-hint: "[--conversation <id>] [--background] [--model <slug>] [follow-up instruction]"
 allowed-tools: Bash(node:*)
 ---
 

@@ -151,7 +151,7 @@ The plugin is a thin layer over `agy`'s headless mode. Honestly, most of the val
 - **Background jobs.** `--background` spawns a detached run, tracks it per-repo, and lets you poll with `status` / collect with `result` / stop with `cancel`.
 - **Error surfacing — the differentiator.** On quota exhaustion, `agy` exits `0` with **empty stdout** — success-looking, but nothing happened. The companion scans `agy`'s `--log-file` to catch that case and surface the real signal: `RESOURCE_EXHAUSTED (429) … Resets in <duration>`, auth failures, and backend errors that the exit code hides. It also recovers the **conversation id** from the log so `resume` and `result` actually work.
 
-**On model selection:** there is no `--model` flag on `agy`. The model (default Gemini 3.5 Flash) is chosen with `/model` *inside* `agy` and persisted in its `settings.json`. Run `! agy`, type `/model`, pick one — that choice sticks for headless runs too.
+**On model selection:** pass `--model <slug>` to `delegate`/`resume`/`review` to override the model for that session (default is Gemini 3.5 Flash). Run `agy models` to list current slugs, e.g. `gemini-3.1-pro-high`, `claude-sonnet-4-6`. This needs `agy >= 1.1.10` — older builds silently ignore `--model` in headless runs, so the companion checks the installed version first and drops the flag with a warning instead of passing one that would quietly do nothing (`agy update` to fix). Without `--model`, or on an older `agy`, the default stays whatever `/model` set inside the TUI, persisted in its `settings.json`.
 
 ---
 

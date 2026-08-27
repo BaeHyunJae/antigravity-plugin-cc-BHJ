@@ -4,7 +4,7 @@
 import { spawnSync } from "node:child_process";
 
 function git(args, cwd) {
-  const res = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const res = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, windowsHide: true });
   return {
     ok: res.status === 0,
     stdout: (res.stdout || "").trim(),

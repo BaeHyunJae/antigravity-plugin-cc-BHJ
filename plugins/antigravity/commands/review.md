@@ -1,6 +1,6 @@
 ---
 description: Cross-model code review of your changes by Gemini 3.5 (read-only, contained).
-argument-hint: "[--base <ref>] [--background] [focus text]"
+argument-hint: "[--base <ref>] [--background] [--model <slug>] [focus text]"
 allowed-tools: Bash(node:*)
 ---
 
@@ -20,6 +20,7 @@ Then show the review verbatim, then add a one-line summary of the most important
 - **`--base <ref>`** — reviews `<ref>...HEAD` instead. Use `--base main` to review the whole branch, `--base HEAD~3` for the last three commits.
 - **Trailing focus text** — anything after the flags steers the review. Point Gemini at what you care about: `security`, `error handling`, `the new retry logic`, `concurrency bugs`.
 - **`--background`** — for large diffs, run it as a job and keep working. You get a job id back; check progress with `/antigravity:status` and pull the finished review with `/antigravity:result`.
+- **`--model <slug>`** — review with a specific model instead of the default. Run `agy models` for slugs. Needs `agy >= 1.1.10`, otherwise it's dropped with a stderr note.
 
 ## Examples
 

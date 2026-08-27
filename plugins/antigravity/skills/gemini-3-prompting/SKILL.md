@@ -21,7 +21,7 @@ Based on Google's Gemini 3.5 developer/prompting guides and practitioner write-u
 - **It handles long context well, but cares about order.** Put the data/code/diff first, then your instruction last. Anchor the ask to the material ("Based on the diff above, ..."). Critical constraints — especially "do NOT touch X" — go at the **end** of the prompt; Gemini 3.5 can drop a negative constraint that appears too early in a long prompt.
 - **One markup style, used consistently.** Markdown headings or simple labels are enough. Don't mix XML tags and Markdown in the same prompt.
 
-You do **not** pick the model in the prompt. There is no model flag on `agy` — the model is set with `/model` inside the TUI and persisted. Never instruct the agent to "use Gemini 3.5 Pro" or pass `-m`.
+Don't pick the model by describing it in the prompt text ("use Gemini 3.5 Pro") — it won't do anything. If the user wants a specific model, pass `--model <slug>` on the `delegate`/`resume`/`review` call instead (needs `agy >= 1.1.10`); otherwise the session uses whatever `/model` set inside the TUI, persisted in `settings.json`.
 
 ## A solid delegate prompt has five parts
 

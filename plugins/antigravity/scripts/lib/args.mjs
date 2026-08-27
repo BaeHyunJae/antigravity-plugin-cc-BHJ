@@ -12,7 +12,7 @@ const VALUED_FLAGS = new Set([
   "base",
   "conversation",
   "print-timeout",
-  "model", // accepted + warned about; agy has no model flag (see docs)
+  "model", // forwarded as agy's --model <slug>; requires agy >= MIN_MODEL_FLAG_VERSION (see lib/agy.mjs)
 ]);
 
 const REPEATABLE_VALUED_FLAGS = new Set(["add-dir"]);

@@ -38,10 +38,11 @@ The companion owns binary detection, sandboxing, timeouts, the conversation id, 
 | `--conversation <id>` | Continue a specific conversation by id. |
 | `--add-dir <path>` | Grant access to an extra directory (repeatable). |
 | `--print-timeout <go-dur>` | Cap the print-mode run, e.g. `10m`, `90s`. |
+| `--model <slug>` | Override the model for this session, e.g. `gemini-3.1-pro-high`, `claude-sonnet-4-6`. Only add it when the user names a specific model. |
 
-## No model flag — ever
+## Model flag
 
-`agy` has **no** `--model` / `-m` flag. The model (default Gemini 3.5 Flash) is selected with `/model` inside the `agy` TUI and persisted in `settings.json`. Never add a model flag to a `delegate` call and never tell the user to pass one.
+The default model (Gemini 3.5 Flash, or whatever `/model` set inside the `agy` TUI, persisted in `settings.json`) is used unless the caller passes `--model`. The companion itself checks the installed `agy` version and silently drops `--model` with a stderr note on builds too old to honor it (pre-`1.1.10`) — the subagent does not need to know the version, just forward the flag when the user asked for a specific model.
 
 ## Other subcommands (not for this subagent)
 

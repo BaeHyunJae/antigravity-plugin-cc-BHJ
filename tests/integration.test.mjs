@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const COMPANION = fileURLToPath(new URL("../plugins/antigravity/scripts/antigravity.mjs", import.meta.url));
 const FAKE_AGY = fileURLToPath(new URL("./fake-agy.mjs", import.meta.url));
 
-function run(args, { mode = "success", home } = {}) {
+function run(args, { mode = "success", home, agyVersion } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), "agy-cwd-"));
   const env = {
     ...process.env,
@@ -17,8 +17,9 @@ function run(args, { mode = "success", home } = {}) {
     ANTIGRAVITY_CC_HOME: home || mkdtempSync(join(tmpdir(), "agy-home-")),
     FAKE_AGY_MODE: mode,
   };
-  const stdout = execFileSync("node", [COMPANION, ...args], { cwd, env, encoding: "utf8" });
-  return { stdout, cwd, home: env.ANTIGRAVITY_CC_HOME };
+  if (agyVersion) env.FAKE_AGY_VERSION = agyVersion;
+  const res = spawnSync("node", [COMPANION, ...args], { cwd, env, encoding: "utf8", windowsHide: true });
+  return { stdout: res.stdout, stderr: res.stderr, cwd, home: env.ANTIGRAVITY_CC_HOME };
 }
 
 before(() => {
@@ -53,6 +54,33 @@ test("delegate surfaces an auth error with sign-in guidance", () => {
   assert.match(stdout, /agy/);
 });
 
+test("delegate --model is forwarded to agy when the version check passes", () => {
+  const { stdout, stderr } = run(["delegate", "--model", "gemini-3.1-pro-high", "summarize the repo"], {
+    mode: "success",
+    agyVersion: "1.1.10",
+  });
+  assert.match(stdout, /model=gemini-3\.1-pro-high/);
+  assert.doesNotMatch(stderr, /note:/);
+});
+
+test("delegate --model is dropped with a warning on agy older than the min version", () => {
+  const { stdout, stderr } = run(["delegate", "--model", "gemini-3.1-pro-high", "summarize the repo"], {
+    mode: "success",
+    agyVersion: "1.1.9",
+  });
+  assert.doesNotMatch(stdout, /model=/);
+  assert.match(stderr, /--model needs agy >= 1\.1\.10/);
+});
+
+test("delegate --model is dropped (fails closed) when agy's version can't be parsed", () => {
+  const { stdout, stderr } = run(["delegate", "--model", "gemini-3.1-pro-high", "summarize the repo"], {
+    mode: "success",
+    agyVersion: "not-a-version",
+  });
+  assert.doesNotMatch(stdout, /model=/);
+  assert.match(stderr, /--model needs agy >= 1\.1\.10/);
+});
+
 test("status + result work across invocations sharing a home", () => {
   const home = mkdtempSync(join(tmpdir(), "agy-home-shared-"));
   run(["delegate", "remember me"], { mode: "success", home });
@@ -60,7 +88,7 @@ test("status + result work across invocations sharing a home", () => {
   const status = execFileSync(
     "node",
     [COMPANION, "status"],
-    { cwd: mkdtempSync(join(tmpdir(), "agy-cwd-")), env: { ...process.env, ANTIGRAVITY_CC_HOME: home, ANTIGRAVITY_CC_AGY_BIN: FAKE_AGY }, encoding: "utf8" },
+    { cwd: mkdtempSync(join(tmpdir(), "agy-cwd-")), env: { ...process.env, ANTIGRAVITY_CC_HOME: home, ANTIGRAVITY_CC_AGY_BIN: FAKE_AGY }, encoding: "utf8", windowsHide: true },
   );
   // jobs are filtered by cwd; with a fresh cwd there are none — assert the header renders.
   assert.match(status, /Antigravity — status/);
@@ -84,6 +112,7 @@ test("missing binary yields install guidance", () => {
   const res = spawnSync(process.execPath, [COMPANION, "delegate", "x"], {
     cwd,
     encoding: "utf8",
+    windowsHide: true,
     env: {
       ANTIGRAVITY_CC_AGY_BIN: "/nonexistent/agy",
       PATH: dirname(process.execPath),

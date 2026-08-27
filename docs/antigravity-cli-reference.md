@@ -1,10 +1,11 @@
 # Antigravity CLI (`agy`) — grounded reference
 
-> Everything in this file was verified against `agy --version 1.0.3` and the live
-> `agy` runtime on macOS (May 2026), plus the official docs at
-> <https://antigravity.google/docs/cli-overview>. This is the contract the plugin
-> is built against. If a future `agy` release changes a flag, update this file and
-> `plugins/antigravity/scripts/lib/agy.mjs` together.
+> Originally verified against `agy --version 1.0.3` and the live `agy` runtime on
+> macOS (May 2026); the `--model`/`--effort` section below was re-verified against
+> `1.1.11` on Windows (Aug 2026), plus the official docs at
+> <https://antigravity.google/docs/cli-overview> and `agy changelog`. This is the
+> contract the plugin is built against. If a future `agy` release changes a flag,
+> update this file and `plugins/antigravity/scripts/lib/agy.mjs` together.
 
 ## What `agy` is
 
@@ -55,17 +56,21 @@ From `agy --help` (verbatim flag set, v1.0.3):
 | `--conversation <id>` | Resume a specific conversation by ID. |
 | `-i`, `--prompt-interactive` | Run an initial prompt, then stay interactive (not used by the plugin — needs a TTY). |
 | `--log-file <path>` | Override the CLI log file path. The plugin uses this to capture the conversation ID and surface backend errors. |
+| `--model <slug>` | Model for this session, e.g. `gemini-3.1-pro-high`. Added in `1.1.5`; run `agy models` for the current slug list. **Requires `>= 1.1.10`** — see the version note below. |
 
 > Note: `agy`'s native `--print-timeout` default is `5m0s`, but the companion always
 > passes `--print-timeout 10m` (and adds a +60s process watchdog on top) unless the
 > caller overrides it — so the **effective default the plugin gives you is 10m**.
 
-Subcommands: `changelog`, `help`, `install`, `plugin`/`plugins`, `update`.
+Subcommands: `changelog`, `help`, `install`, `plugin`/`plugins`, `update`, `models`.
 
-**There is NO `--model` / `-m` flag.** (A widely-shared blog post claims `agy -m`;
-it does not exist in v1.0.3.) The model is chosen with `/model` inside the TUI and
-persisted in `settings.json`. The plugin therefore does not pass a model flag; it
-documents how to set the default model instead.
+**`--model` needs `agy >= 1.1.10`.** The flag itself landed in `1.1.5`, but through
+`1.1.9` it was silently ignored in headless `-p` runs and in interactive sessions —
+the run would fall back to the persisted/default model with no error (fixed in
+`1.1.10`, per `agy changelog`). The plugin checks `agy --version` before forwarding
+`--model` and drops it with a stderr note on older builds rather than passing a flag
+that would quietly do nothing. Below `1.1.5` the flag doesn't exist at all. Either
+way, the fallback is `/model` inside the TUI, persisted in `settings.json`.
 
 ## Critical runtime behavior (verified live)
 
@@ -81,7 +86,8 @@ documents how to set the default model instead.
    - `RESOURCE_EXHAUSTED (code 429): Individual quota reached. ... Resets in <dur>` → quota exhausted.
    - auth / `UNAUTHENTICATED` / `login` → not signed in.
    - `agent executor error: ...` → generic backend failure.
-5. **Default model** (no override) is `Gemini 3.5 Flash`.
+5. **Default model** (no override) is `Gemini 3.5 Flash`. Override per-session with
+   `--model <slug>` (see above; needs `agy >= 1.1.10`).
 
 ## Config layout
 
