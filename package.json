@@ -16,7 +16,8 @@
   },
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "antigravity": "node plugins/antigravity/scripts/antigravity.mjs"
+    "antigravity": "node plugins/antigravity/scripts/antigravity.mjs",
+    "gen:cli-ref": "node scripts/gen-cli-reference.mjs"
   },
   "keywords": [
     "antigravity",

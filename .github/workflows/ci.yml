@@ -38,3 +38,9 @@ jobs:
             head -1 "$f" | grep -q '^---$' || { echo "MISSING frontmatter: $f"; fail=1; }
           done
           exit $fail
+
+      # agy is not installed on the runner; the generator exits 0 in --check mode when
+      # it cannot find the binary, so this only bites when someone hand-edits a
+      # generated block on a machine that does have agy.
+      - name: Check the generated CLI reference is in sync
+        run: npm run gen:cli-ref -- --check
