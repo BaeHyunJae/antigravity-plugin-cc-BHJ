@@ -240,6 +240,151 @@ test("a prompt that fits is not flagged as cut", () => {
   assert.doesNotMatch(stdout, /cut at/i);
 });
 
+// --- continuing a thread ---------------------------------------------------
+
+test("continuing names the thread it picked up", () => {
+  // A continue that silently grabbed the wrong thread reads exactly like one that
+  // grabbed the right thread, so the companion says which one it resolved.
+  const home = mkdtempSync(join(tmpdir(), "agy-home-cont-"));
+  const cwd = mkdtempSync(join(tmpdir(), "agy-cwd-"));
+  const call = (args) =>
+    spawnSync("node", [COMPANION, ...args], {
+      cwd,
+      env: { ...process.env, ANTIGRAVITY_CC_AGY_BIN: FAKE_AGY, ANTIGRAVITY_CC_HOME: home, FAKE_AGY_MODE: "success" },
+      encoding: "utf8",
+      windowsHide: true,
+    }).stdout;
+
+  call(["delegate", "the first task"]);
+  const continued = call(["delegate", "--continue", "keep going"]);
+  assert.match(continued, /Continued the thread from: the first task/);
+});
+
+test("--fresh suppresses a continue instead of being accepted and ignored", () => {
+  const home = mkdtempSync(join(tmpdir(), "agy-home-fresh-"));
+  const cwd = mkdtempSync(join(tmpdir(), "agy-cwd-"));
+  const call = (args) =>
+    spawnSync("node", [COMPANION, ...args], {
+      cwd,
+      env: { ...process.env, ANTIGRAVITY_CC_AGY_BIN: FAKE_AGY, ANTIGRAVITY_CC_HOME: home, FAKE_AGY_MODE: "success" },
+      encoding: "utf8",
+      windowsHide: true,
+    }).stdout;
+
+  call(["delegate", "the first task"]);
+  const fresh = call(["delegate", "--continue", "--fresh", "start over"]);
+  assert.doesNotMatch(fresh, /Continued the thread from/);
+  assert.match(fresh, /Antigravity \(fake\) reply/);
+});
+
+test("resume refuses --fresh instead of quietly continuing anyway", () => {
+  // `resume` means continue, so `--fresh` asks for the opposite of what the command does.
+  // It used to be parsed, ignored, and the thread continued regardless.
+  const home = mkdtempSync(join(tmpdir(), "agy-home-contradiction-"));
+  const cwd = mkdtempSync(join(tmpdir(), "agy-cwd-"));
+  const call = (args) =>
+    spawnSync("node", [COMPANION, ...args], {
+      cwd,
+      env: { ...process.env, ANTIGRAVITY_CC_AGY_BIN: FAKE_AGY, ANTIGRAVITY_CC_HOME: home, FAKE_AGY_MODE: "success" },
+      encoding: "utf8",
+      windowsHide: true,
+    }).stdout;
+
+  call(["delegate", "the first task"]);
+  const refused = call(["resume", "--fresh", "keep going"]);
+  assert.match(refused, /does not apply here/i);
+  assert.match(refused, /antigravity:delegate/);
+  assert.doesNotMatch(refused, /Continued the thread from/);
+  assert.doesNotMatch(refused, /Antigravity \(fake\) reply/);
+});
+
+test("--base is refused on delegate rather than silently doing nothing", () => {
+  const { stdout } = run(["delegate", "--base", "main", "do the thing"], { mode: "success" });
+  assert.match(stdout, /not a delegate flag/i);
+  assert.match(stdout, /antigravity:review --base/);
+  assert.doesNotMatch(stdout, /Antigravity \(fake\) reply/);
+});
+
+test("--base still works on review", () => {
+  const home = mkdtempSync(join(tmpdir(), "agy-home-base-"));
+  const repo = mkdtempSync(join(tmpdir(), "agy-repo-"));
+  const g = (...args) =>
+    execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
+      cwd: repo,
+      encoding: "utf8",
+      windowsHide: true,
+    });
+  g("init", "-q");
+  g("commit", "-q", "--allow-empty", "-m", "seed");
+  writeFileSync(join(repo, "a.txt"), "one\n");
+  g("add", "-A");
+  g("commit", "-q", "-m", "one");
+  writeFileSync(join(repo, "b.txt"), "two\n");
+  g("add", "-A");
+
+  const out = spawnSync("node", [COMPANION, "review", "--base", "HEAD~1"], {
+    cwd: repo,
+    env: { ...process.env, ANTIGRAVITY_CC_AGY_BIN: FAKE_AGY, ANTIGRAVITY_CC_HOME: home, FAKE_AGY_MODE: "success" },
+    encoding: "utf8",
+    windowsHide: true,
+  }).stdout;
+  assert.match(out, /Antigravity \(fake\) reply/);
+  assert.doesNotMatch(out, /not a .* flag/i);
+});
+
+test("a review thread can be continued, as the command documents", () => {
+  // codex filters continuation down to its task jobs and excludes reviews. This plugin
+  // deliberately does not: `/antigravity:resume` is documented as the way to follow up on
+  // a review, so a review job has to stay eligible.
+  const home = mkdtempSync(join(tmpdir(), "agy-home-reviewcont-"));
+  const repo = mkdtempSync(join(tmpdir(), "agy-repo-"));
+  const g = (...args) =>
+    execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], {
+      cwd: repo,
+      encoding: "utf8",
+      windowsHide: true,
+    });
+  g("init", "-q");
+  g("commit", "-q", "--allow-empty", "-m", "seed");
+  writeFileSync(join(repo, "changed.txt"), "something\n");
+  g("add", "-A");
+
+  const call = (args) =>
+    spawnSync("node", [COMPANION, ...args], {
+      cwd: repo,
+      env: { ...process.env, ANTIGRAVITY_CC_AGY_BIN: FAKE_AGY, ANTIGRAVITY_CC_HOME: home, FAKE_AGY_MODE: "success" },
+      encoding: "utf8",
+      windowsHide: true,
+    }).stdout;
+
+  call(["review"]);
+  const candidate = JSON.parse(call(["resume-candidate", "--json"]));
+  assert.equal(candidate.available, true);
+  assert.equal(candidate.candidate.kind, "review");
+});
+
+test("resume-candidate reports what a caller needs to decide with", () => {
+  const home = mkdtempSync(join(tmpdir(), "agy-home-cand-"));
+  const cwd = mkdtempSync(join(tmpdir(), "agy-cwd-"));
+  const call = (args) =>
+    spawnSync("node", [COMPANION, ...args], {
+      cwd,
+      env: { ...process.env, ANTIGRAVITY_CC_AGY_BIN: FAKE_AGY, ANTIGRAVITY_CC_HOME: home, FAKE_AGY_MODE: "success" },
+      encoding: "utf8",
+      windowsHide: true,
+    }).stdout;
+
+  const before = JSON.parse(call(["resume-candidate", "--json"]));
+  assert.equal(before.available, false);
+  assert.equal(before.status, "none");
+
+  call(["delegate", "something worth continuing"]);
+  const after = JSON.parse(call(["resume-candidate", "--json"]));
+  assert.equal(after.available, true);
+  assert.equal(after.candidate.title, "something worth continuing");
+  assert.ok(after.candidate.conversationId, "a candidate must carry the conversation to continue");
+});
+
 // --- escape hatch ----------------------------------------------------------
 
 test("--agy-arg passes unknown flags through to agy", () => {

@@ -128,8 +128,19 @@ export function scanStderr(stderrText) {
   const timedOut = /print timeout after .* returning partial output/i.test(text);
   const marker = text.match(/^\s*error:\s*(.+?)\s*(\(response may be truncated\))?\s*$/im);
 
+  // Not everything agy refuses carries that marker. Argument parsing happens before the
+  // marker exists, so a bad flag prints `flags provided but not defined: -base` followed
+  // by the whole usage block and exits 2. Keeping only the first line turns a bare
+  // "agy exited with code 2" into the sentence agy already wrote.
+  const firstLine =
+    text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .find((l) => l && !/^usage of/i.test(l) && !/^\[agy\] print timeout/i.test(l)) || null;
+
   return {
     error: marker ? marker[1].trim() : null,
+    firstLine,
     truncated: Boolean(marker && marker[2]) || timedOut,
     timedOut,
   };

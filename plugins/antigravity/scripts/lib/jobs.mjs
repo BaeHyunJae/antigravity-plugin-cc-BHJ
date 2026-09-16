@@ -36,12 +36,18 @@ export function jobPaths(id, env = process.env) {
   };
 }
 
+/** The Claude Code session a job was started from, when the harness exposes one. */
+export function currentSessionId(env = process.env) {
+  return env.CLAUDE_CODE_SESSION_ID || null;
+}
+
 export function createJob(meta, env = process.env) {
   const id = meta.id || newJobId();
   const paths = jobPaths(id, env);
   mkdirSync(paths.dir, { recursive: true });
   const record = {
     id,
+    sessionId: meta.sessionId ?? currentSessionId(env),
     kind: meta.kind || "delegate",
     title: meta.title || "",
     prompt: meta.prompt || "",
@@ -148,6 +154,37 @@ export function listJobs(cwd, env = process.env) {
 
 export function latestJob(cwd, env = process.env) {
   return listJobs(cwd, env)[0] || null;
+}
+
+/**
+ * Resolve which Antigravity conversation a "continue" should actually continue.
+ *
+ * Without this the companion just forwards `agy --continue`, which resumes whatever
+ * conversation agy itself saw most recently in the workspace. That is fine when a person
+ * types `/antigravity:resume` knowing what they just did, and wrong when anything else
+ * decides to continue: it can silently pick up a thread from other work.
+ *
+ * So the target is resolved here, from this plugin's own job records, scoped to this
+ * directory and to the Claude session that started them, and then passed explicitly as
+ * `--conversation <id>`. Jobs from before session tagging have no `sessionId` and stay
+ * eligible, so existing history does not become unreachable.
+ *
+ * @returns {{ status: "ok", conversationId: string, job: object }
+ *          | { status: "running", job: object }
+ *          | { status: "none" }}
+ */
+export function resolveResumeTarget(cwd, env = process.env) {
+  const sessionId = currentSessionId(env);
+  const jobs = listJobs(cwd, env);
+
+  const running = jobs.find((job) => job.status === "running");
+  if (running) return { status: "running", job: running };
+
+  const candidate = jobs.find(
+    (job) => job.conversationId && (!sessionId || !job.sessionId || job.sessionId === sessionId),
+  );
+  if (!candidate) return { status: "none" };
+  return { status: "ok", conversationId: candidate.conversationId, job: candidate };
 }
 
 export function cancelJob(job) {

@@ -27,12 +27,14 @@ Forwarding rules:
 - Do not call `review`, `resume`, `status`, `result`, or `cancel`. This subagent only forwards to `delegate`.
 - If the user names a specific model (e.g. "use gemini-3.1-pro-high", "run this on claude-sonnet-4-6"), forward it as `--model <slug>`. Otherwise never add `--model` — leave the model to `agy`'s own default.
 - Only add `--effort <low|medium|high>` when the user asks for a reasoning-effort level. Most slugs already encode one, and `agy` rejects a slug that disagrees with `--effort`, so never pair them on your own.
-- Forward `--no-slash-commands` and `--agy-arg <token>` verbatim if the user passes them. Never add either on your own.
+- **Forward every flag exactly as the caller wrote it. Never translate one flag into another.** If you are handed a flag this list does not mention, pass it through unchanged and let the companion answer for it. The companion knows which flags it owns and explains the ones it rejects; rewriting a flag on the way through replaces that explanation with a raw failure from `agy`.
+- In particular, never wrap a flag in `--agy-arg` to make it go through. `--agy-arg` is an escape hatch the *caller* asks for, not a way to pass along something you did not recognise. Forward `--agy-arg <token>` and `--no-slash-commands` only when the caller wrote them.
 - Default to a write-capable Antigravity run. Do not add `--read-only` or `--sandbox` unless the user explicitly asks for review, diagnosis, or research only, or asks to contain the run.
 - Treat `--background`, `--wait`, and `--continue` as routing controls and do not include them in the task text you pass through.
 - `--background` means add `--background`.
 - If the user did not choose foreground or background and the task looks complicated, open-ended, multi-step, or likely to keep Antigravity running for a long time, prefer `--background`.
-- If the user is clearly asking to continue prior Antigravity work in this repository, such as "continue", "keep going", "resume", or "apply the top fix", add `--continue` (or `--continue` with `--conversation <id>` if they name one) unless they ask for a fresh run.
+- The `/antigravity:delegate` command decides whether this continues an existing thread before it reaches you, and passes `--continue`, `--conversation <id>`, or `--fresh` when it has. Forward whichever you are given, verbatim.
+- Do not add `--continue` on your own judgement. That decision needs the caller's thread check and, when there is a choice, the user's answer. Guessing here is how a follow-up ends up continuing the wrong thread.
 - Otherwise forward the task as a fresh `delegate` run.
 - Preserve the user's task text as-is apart from stripping routing flags.
 - Return the stdout of the `antigravity.mjs` command exactly as-is.

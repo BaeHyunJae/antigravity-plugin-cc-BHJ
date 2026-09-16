@@ -130,6 +130,8 @@ Background flow — kick it off, keep working, collect later:
 
 Continue the last Antigravity conversation (or a specific one) with a follow-up.
 
+The thread is chosen from this plugin's own job records, scoped to this directory and to the Claude session that started them, and passed to `agy` as an explicit conversation id — the reply tells you which thread it picked up. If a job from the same directory is still running, the continue is refused rather than forking the thread; finish or cancel it first. `/antigravity:delegate` can continue a thread too, but it asks first unless you passed `--continue`, `--conversation <id>`, or `--fresh`.
+
 ```text
 /antigravity:resume now add unit tests for the code you just wrote
 /antigravity:resume --conversation f47ac10b-58cc-4372-a567-0e02b2c3d479 also handle the empty-input case

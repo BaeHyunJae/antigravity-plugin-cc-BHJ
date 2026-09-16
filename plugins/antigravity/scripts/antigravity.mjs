@@ -36,6 +36,8 @@ import {
   listJobs,
   latestJob,
   cancelJob,
+  resolveResumeTarget,
+  currentSessionId,
 } from "./lib/jobs.mjs";
 import * as render from "./lib/render.mjs";
 
@@ -147,6 +149,42 @@ function cmdSetup(parsed) {
   out(render.renderSetup(report));
 }
 
+// ---------------------------------------------------------------------------
+// resume-candidate
+// ---------------------------------------------------------------------------
+/**
+ * Report whether there is a thread worth continuing, for a caller that has to decide
+ * between continuing and starting fresh before it commits to either.
+ */
+function cmdResumeCandidate(parsed) {
+  const cwd = process.cwd();
+  const target = resolveResumeTarget(cwd);
+  const payload = {
+    available: target.status === "ok",
+    status: target.status,
+    sessionId: currentSessionId(),
+    cwd,
+    candidate:
+      target.status === "ok"
+        ? {
+            jobId: target.job.id,
+            conversationId: target.conversationId,
+            title: target.job.title || null,
+            kind: target.job.kind || null,
+            finishedAt: target.job.finishedAt || null,
+            jobStatus: target.job.status || null,
+          }
+        : null,
+    running: target.status === "running" ? { jobId: target.job.id, title: target.job.title || null } : null,
+  };
+
+  if (hasFlag(parsed, "json")) {
+    out(JSON.stringify(payload, null, 2));
+    return;
+  }
+  out(render.renderResumeCandidate(payload));
+}
+
 function safeReaddir(dir) {
   try {
     return readdirSync(dir);
@@ -178,10 +216,43 @@ function runAgyTask(parsed, { kind, title, prompt, buildPrompt, readOnly, resume
     return;
   }
 
+  // `--base` scopes a review's diff and means nothing here. Accepting it and running
+  // anyway would hand back an answer that ignored the range the caller asked for.
+  if (kind !== "review" && parsed.valued.base) {
+    out(render.renderFlagNotForThisCommand("--base", kind, "/antigravity:review --base <ref>"));
+    return;
+  }
+
   const sandbox = hasFlag(parsed, "sandbox") || Boolean(readOnly);
   const yolo = !hasFlag(parsed, "no-yolo"); // write-capable by default; contained if sandbox
-  const continueLast = resume && !parsed.valued.conversation ? true : hasFlag(parsed, "continue");
-  const conversationId = parsed.valued.conversation || null;
+
+  // Resolve *which* conversation a continue continues, rather than handing agy a bare
+  // `--continue` and letting it pick the workspace's most recent thread. See
+  // resolveResumeTarget for why.
+  // `--fresh` is the explicit "no, start a new thread" that the delegate flow offers next
+  // to "continue". Accepting it and doing nothing with it would be the silent no-op this
+  // companion exists to prevent, so it suppresses the continue outright.
+  const wantsContinue = resume
+    ? !parsed.valued.conversation
+    : hasFlag(parsed, "continue") && !hasFlag(parsed, "fresh");
+  let conversationId = parsed.valued.conversation || null;
+  let continueLast = false;
+  let resumedFrom = null;
+  if (!conversationId && wantsContinue) {
+    const target = resolveResumeTarget(cwd);
+    if (target.status === "running") {
+      out(render.renderResumeBlocked(target.job));
+      return;
+    }
+    if (target.status === "ok") {
+      conversationId = target.conversationId;
+      resumedFrom = target.job;
+    } else {
+      // No job of ours to point at — this directory's history may predate the plugin, or
+      // the user drove agy directly. Fall back to agy's own notion of "most recent".
+      continueLast = true;
+    }
+  }
   const printTimeout = parsed.valued["print-timeout"] || "10m";
   const addDirs = [cwd, ...(parsed.repeated["add-dir"] || [])];
   const model = parsed.valued.model || null;
@@ -261,6 +332,9 @@ function runAgyTask(parsed, { kind, title, prompt, buildPrompt, readOnly, resume
   job.conversationId = outcome.conversationId || job.conversationId;
   job.usage = outcome.usage || null;
   job.durationSeconds = outcome.durationSeconds ?? null;
+  // reconcile() stamps this for background jobs; do the same here so `/antigravity:status`
+  // ages a foreground run from when it ended rather than when it started.
+  job.finishedAt = new Date().toISOString();
 
   const meta = {
     title,
@@ -272,6 +346,7 @@ function runAgyTask(parsed, { kind, title, prompt, buildPrompt, readOnly, resume
     truncated: outcome.truncated,
     deniedActions: outcome.deniedActions,
     promptNote,
+    resumedFrom: resumedFrom ? resumedFrom.title || resumedFrom.id : null,
   };
 
   if (outcome.kind === "success") {
@@ -351,8 +426,11 @@ function classifyRun(result) {
   const reportedError = envelope.error || stderrInfo.error || null;
 
   if (result.code !== 0) {
+    // Fall back to whatever agy actually wrote on stderr before settling for the exit
+    // code. A rejected flag, a bad value, anything it refuses during startup — it says so
+    // there, and reporting only "exited with code 2" throws that sentence away.
     const error =
-      pickError(scan, reportedError) ||
+      pickError(scan, reportedError || stderrInfo.firstLine) ||
       { kind: "backend", message: `agy exited with code ${result.code}.`, resetsIn: null };
     return { ...base, kind: "failed", error };
   }
@@ -419,6 +497,13 @@ function cmdDelegate(parsed) {
 }
 
 function cmdResume(parsed) {
+  // `resume` means continue, so `--fresh` contradicts the command itself. Silently
+  // picking one of the two readings is exactly the accepted-and-ignored flag this
+  // companion exists to catch.
+  if (hasFlag(parsed, "fresh")) {
+    out(render.renderContradictoryFresh());
+    return;
+  }
   const followUp = parsed.text || "Continue from where you left off.";
   runAgyTask(parsed, {
     kind: "delegate",
@@ -636,6 +721,7 @@ function usage() {
       "                  [--no-slash-commands] [--agy-arg <token>]",
       "  review [--base <ref>] [--background] [--model <slug>] [--effort <level>] [focus text...]",
       "  resume <follow-up> [--conversation <id>] [--background] [--model <slug>] [--effort <level>]",
+      "  resume-candidate [--json]",
       "  status [job-id]",
       "  result [job-id]",
       "  cancel [job-id]",
@@ -660,6 +746,8 @@ function main() {
       return cmdReview(parsed);
     case "resume":
       return cmdResume(parsed);
+    case "resume-candidate":
+      return cmdResumeCandidate(parsed);
     case "status":
       return cmdStatus(parsed);
     case "result":

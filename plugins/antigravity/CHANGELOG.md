@@ -46,6 +46,27 @@ and three of its core assumptions had since stopped being true.
   model cannot spend tokens calling them on its own.
 - `/antigravity:status` shows how long ago each job ran. Without it a stale failure from days
   ago reads exactly like one from the current session, since both appear in the same list.
+- **Continuing a thread now resolves which thread, instead of leaving it to `agy`.** A bare
+  `--continue` asks `agy` to resume whatever conversation it saw most recently in the
+  workspace. That is fine when a person types `/antigravity:resume` knowing what they just
+  did, and wrong when anything else decides to continue. The companion now picks the target
+  from its own job records, scoped to the directory and to the Claude session that started
+  them, and passes it explicitly as `--conversation <id>`. The response says which thread it
+  picked up. Jobs recorded before session tagging stay eligible, so existing history does not
+  become unreachable, and if this plugin has no record to point at it still falls back to
+  `agy`'s own `--continue`.
+- **A continue is refused while a job from the same directory is still running**, rather than
+  forking the thread or silently picking a different one.
+- `/antigravity:delegate` asks before continuing an existing thread, using a new
+  `resume-candidate` companion subcommand to find out whether there is one. `--continue`,
+  `--conversation <id>` and the new `--fresh` all mean the user already chose, so it does not
+  ask. This mirrors how `codex-plugin-cc` handles continuation on its own delegation command.
+- `--fresh` suppresses a continue outright instead of being accepted and ignored, and
+  `/antigravity:resume --fresh` is refused rather than quietly continuing anyway, since
+  `resume` exists to do the opposite of what that flag asks for.
+- `--base` is refused on `delegate` and `resume` instead of being parsed and dropped. It
+  scopes a review's diff, so running without it answers a different question than the one
+  the range was meant to ask.
 
 ### Fixed
 - **Failures are no longer diagnosed from log severity.** A successful `agy` 1.2.x run writes
@@ -68,6 +89,11 @@ and three of its core assumptions had since stopped being true.
   `--dangerously-skip-permissions`.
 - `agy`'s own print-timeout expiry returns partial output and exits 0 as of 1.1.28. That is
   now reported as an incomplete response instead of being mistaken for a clean run.
+- **A run `agy` refuses during startup now says why.** Argument parsing happens before the
+  stable `error:` marker exists, so a rejected flag prints `flags provided but not defined:
+  -base` and the usage block, then exits 2 — and the companion reported only "agy exited with
+  code 2", throwing away the sentence `agy` had already written. The first meaningful stderr
+  line is now used whenever nothing better is available.
 - **`/antigravity:review` no longer dies on a real working tree.** The prompt travels in argv
   as `-p <prompt>` (`-p` is a string flag — there is no plain-stdin fallback), and Windows caps
   an entire command line at 32,767 characters. The old 100 KiB clamp was three times that, so a

@@ -105,6 +105,20 @@ test("scanStderr recognizes agy's own print-timeout partial output", () => {
   assert.equal(r.error, null);
 });
 
+test("scanStderr keeps agy's own refusal when there is no error: marker", () => {
+  // Argument parsing happens before that marker exists: a bad flag prints this and the
+  // whole usage block, then exits 2. Without the fallback the companion reported only
+  // "agy exited with code 2" and threw away the sentence agy had already written.
+  const r = scanStderr("flags provided but not defined: -base\nUsage of agy.exe:\n  --add-dir   Add a directory\n");
+  assert.equal(r.firstLine, "flags provided but not defined: -base");
+  assert.equal(r.error, null, "there is no error: marker here");
+});
+
+test("scanStderr does not mistake the usage header or the timeout notice for the reason", () => {
+  assert.equal(scanStderr("Usage of agy.exe:\n  --add-dir  x\n").firstLine, "--add-dir  x");
+  assert.equal(scanStderr("[agy] print timeout after 8s with turn in progress; returning partial output\n").firstLine, null);
+});
+
 test("scanStderr is quiet on empty or noisy-but-fine stderr", () => {
   assert.deepEqual(scanStderr(""), { error: null, truncated: false, timedOut: false });
   assert.equal(scanStderr("loading plugins...\nready\n").error, null);

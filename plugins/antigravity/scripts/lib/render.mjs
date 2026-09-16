@@ -88,6 +88,11 @@ export function renderResponse(responseText, meta = {}) {
   }
   if (meta.cancelled) notes.push("_The turn was stopped before it finished; this is what Antigravity had produced._", "");
   else if (meta.truncated) notes.push("_Antigravity hit its print timeout — this response may be incomplete._", "");
+  if (meta.resumedFrom) {
+    // Say which thread got continued. A continue that silently picked the wrong one
+    // otherwise looks identical to one that picked the right one.
+    notes.push(`_Continued the thread from: ${meta.resumedFrom}_`, "");
+  }
   if (meta.deniedActions && meta.deniedActions.length) {
     // The answer arrived, but part of the work was blocked — say so next to the answer
     // rather than letting the reader assume the task completed.
@@ -100,6 +105,75 @@ export function renderResponse(responseText, meta = {}) {
     ...resumeFooter(meta),
   ];
   return ensureTrailingNewline(lines.join("\n").trimEnd());
+}
+
+/** A flag that belongs to a different subcommand was supplied. */
+export function renderFlagNotForThisCommand(flag, kind, instead) {
+  const lines = [
+    `# 🛰️ Antigravity — \`${flag}\` is not a ${kind} flag`,
+    "",
+    `\`${flag}\` belongs to a different command, so running anyway would answer a question`,
+    "you did not ask. Nothing was run.",
+    "",
+    `Did you mean: \`${instead}\``,
+  ];
+  return ensureTrailingNewline(lines.join("\n"));
+}
+
+/** `--fresh` was passed to `resume`, which exists to do the opposite. */
+export function renderContradictoryFresh() {
+  const lines = [
+    "# 🛰️ Antigravity — `--fresh` does not apply here",
+    "",
+    "`/antigravity:resume` continues an existing thread, so `--fresh` asks for the opposite",
+    "of what the command does. Nothing was run.",
+    "",
+    "- To start a new thread: `/antigravity:delegate <task>`",
+    "- To continue this one: `/antigravity:resume <follow-up>`",
+    "- To continue a specific one: `/antigravity:resume --conversation <id> <follow-up>`",
+  ];
+  return ensureTrailingNewline(lines.join("\n"));
+}
+
+/** A continue was asked for while a job from this directory is still running. */
+export function renderResumeBlocked(job) {
+  const lines = [
+    "# 🛰️ Antigravity — a job is still running",
+    "",
+    `Job \`${job.id}\`${job.title ? ` (${job.title})` : ""} has not finished, so there is no settled thread to continue.`,
+    "",
+    "Continuing now would either fork the thread or pick up a different one. Wait for it:",
+    "",
+    `- \`/antigravity:status ${job.id}\` — check on it`,
+    `- \`/antigravity:result ${job.id}\` — read it once it lands`,
+    `- \`/antigravity:cancel ${job.id}\` — stop it`,
+    "",
+    "Or name the thread you meant with `--conversation <id>`.",
+  ];
+  return ensureTrailingNewline(lines.join("\n"));
+}
+
+/** Human-readable form of `resume-candidate`, for someone running it by hand. */
+export function renderResumeCandidate(payload) {
+  const lines = ["# 🛰️ Antigravity — resumable thread", ""];
+  if (payload.status === "running") {
+    lines.push(
+      `A job is still running: \`${payload.running.jobId}\`${payload.running.title ? ` (${payload.running.title})` : ""}.`,
+      "Nothing can be continued until it finishes.",
+    );
+  } else if (payload.available) {
+    const c = payload.candidate;
+    lines.push(
+      `Ready to continue: \`${c.conversationId}\``,
+      c.title ? `Last task: ${c.title}` : "",
+      c.finishedAt ? `Finished: ${c.finishedAt}` : "",
+      "",
+      "Continue it with `/antigravity:resume <follow-up>`.",
+    );
+  } else {
+    lines.push("No thread from this directory to continue. Start one with `/antigravity:delegate <task>`.");
+  }
+  return ensureTrailingNewline(lines.filter(Boolean).join("\n").trimEnd());
 }
 
 /** The installed agy predates the contract this companion is built against. */
