@@ -1,8 +1,15 @@
-// Scan an `agy` --log-file to recover what print mode hides on stdout.
+// Scan an `agy` --log-file for what the normal path could not tell us.
 //
-// Grounded in real runtime behavior (agy 1.0.3): print mode exits 0 with EMPTY
-// stdout when the backend call fails (e.g. quota exhausted). The conversation ID
-// and the real error are only in the log. We parse both here.
+// This is a FALLBACK, not the primary channel. Since agy 1.1.8 the companion runs
+// with `--output-format json` and reads the status, the error and the conversation
+// id straight off the envelope (see lib/envelope.mjs). Two cases still land here:
+//
+//   1. stdout comes back completely empty with exit 0. Reported upstream for
+//      non-TTY pipes, which is exactly how we spawn agy
+//      (stdio: ["ignore", "pipe", "pipe"]).
+//   2. The envelope is present but carries no conversation id.
+//
+// Grounded against agy 1.2.4 (Windows, 2026-09).
 
 /**
  * @param {string} logText raw contents of the agy log file (may be "")
@@ -23,7 +30,8 @@ export function scanAgyLog(logText) {
 }
 
 function extractConversationId(text) {
-  // Prefer the explicit "Created conversation <uuid>" then "conversation=<uuid>".
+  // "Created conversation <uuid>" is still emitted by 1.2.x. The "conversation=<uuid>"
+  // form is legacy (not seen in 1.2.x logs) but costs nothing to keep for old logs.
   const created = text.match(/Created conversation ([0-9a-fA-F-]{8,})/);
   if (created) return created[1];
   const eq = text.match(/conversation=([0-9a-fA-F-]{8,})/);
@@ -31,20 +39,26 @@ function extractConversationId(text) {
   return null;
 }
 
+/**
+ * Strings that only ever appear in a genuinely failed run.
+ *
+ * This is an allowlist on purpose. Severity prefixes are NOT a usable signal: a
+ * fully successful agy 1.2.x run writes ~36 `E`-severity lines and ~57 copies of
+ * "error getting token source: You are not logged into Antigravity." to its log
+ * while starting up, long before it succeeds. Anything matched loosely here turns
+ * every fallback-path run into a confident, wrong diagnosis.
+ *
+ * Each token below was verified absent (0 hits) from the log of a successful
+ * 1.2.x run. Do not add a pattern without checking that first.
+ */
+const ERROR_SIGNAL =
+  /RESOURCE_EXHAUSTED|UNAUTHENTICATED|PERMISSION_DENIED|agent executor error|Individual quota reached|code [45]\d{2}/i;
+
 function extractErrorLines(text) {
   const out = [];
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
-    if (!line) continue;
-    // glog/klog style: severity letter prefix E/F at the very start.
-    const isErrorSeverity = /^[EF]\d{4}\s/.test(line);
-    const looksLikeError =
-      /RESOURCE_EXHAUSTED|UNAUTHENTICATED|PERMISSION_DENIED|agent executor error|code 4\d{2}|code 5\d{2}|quota|not authenticated|login required/i.test(
-        line,
-      );
-    if (isErrorSeverity || looksLikeError) {
-      out.push(line);
-    }
+    if (line && ERROR_SIGNAL.test(line)) out.push(line);
   }
   // De-duplicate consecutive repeats (agy logs the same error twice).
   return dedupe(out);
@@ -54,7 +68,7 @@ function classifyError(errorLines) {
   if (errorLines.length === 0) return null;
   const joined = errorLines.join("\n");
 
-  if (/RESOURCE_EXHAUSTED|Individual quota reached|quota/i.test(joined)) {
+  if (/RESOURCE_EXHAUSTED|Individual quota reached/i.test(joined)) {
     const reset = joined.match(/Resets in ([0-9hms]+)/i);
     return {
       kind: "quota",
@@ -63,7 +77,7 @@ function classifyError(errorLines) {
     };
   }
 
-  if (/UNAUTHENTICATED|not authenticated|login required|PERMISSION_DENIED/i.test(joined)) {
+  if (/UNAUTHENTICATED|PERMISSION_DENIED/i.test(joined)) {
     return {
       kind: "auth",
       message: "Antigravity is not authenticated. Run `! agy` once to sign in.",
@@ -103,4 +117,22 @@ function dedupe(lines) {
   return kept.map((k) => k.line);
 }
 
-export { stripGlogPrefix };
+/** Extract the stable `error:` marker agy writes to stderr for fatal headless errors. */
+export function scanStderr(stderrText) {
+  const text = typeof stderrText === "string" ? stderrText : "";
+  if (!text.trim()) return { error: null, truncated: false, timedOut: false };
+
+  // Literal format strings in the agy binary:
+  //   "error: %s (response may be truncated)"
+  //   "[agy] print timeout after %s with turn in progress; returning partial output"
+  const timedOut = /print timeout after .* returning partial output/i.test(text);
+  const marker = text.match(/^\s*error:\s*(.+?)\s*(\(response may be truncated\))?\s*$/im);
+
+  return {
+    error: marker ? marker[1].trim() : null,
+    truncated: Boolean(marker && marker[2]) || timedOut,
+    timedOut,
+  };
+}
+
+export { stripGlogPrefix, extractConversationId };

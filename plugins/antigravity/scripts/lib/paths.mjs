@@ -58,14 +58,24 @@ export function resolveAgyBinary(env = process.env) {
   return null;
 }
 
-/** Root of the agy config/state directory. */
-export function agyConfigDir(env = process.env) {
+/**
+ * Root of the agy config/state directory.
+ *
+ * agy resolves this from the OS home directory and offers no env override, so
+ * neither do we — the parameter this used to accept was always ignored.
+ */
+export function agyConfigDir() {
   return join(homedir(), ".gemini", "antigravity-cli");
 }
 
-/** Directory where agy persists conversation threads (`<id>.pb`). */
-export function agyConversationsDir(env = process.env) {
-  return join(agyConfigDir(env), "conversations");
+/**
+ * Directory where agy persists conversation threads.
+ *
+ * Threads are SQLite databases (`<id>.db`, alongside `-shm`/`-wal` siblings) as of
+ * agy 1.2.x. Older builds wrote protobuf (`<id>.pb`).
+ */
+export function agyConversationsDir() {
+  return join(agyConfigDir(), "conversations");
 }
 
 /** Root for this plugin's own job state. Override with ANTIGRAVITY_CC_HOME (tests). */

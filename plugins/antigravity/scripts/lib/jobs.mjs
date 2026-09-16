@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { jobsRoot, jobDir } from "./paths.mjs";
 import { readLogSafe } from "./agy.mjs";
 import { scanAgyLog } from "./logscan.mjs";
+import { parseEnvelope, isSuccess, isCancelled, isFullyDenied, describeDenied } from "./envelope.mjs";
 
 function nowIso() {
   return new Date().toISOString();
@@ -51,6 +52,8 @@ export function createJob(meta, env = process.env) {
     startedAt: meta.startedAt || nowIso(),
     finishedAt: meta.finishedAt ?? null,
     error: meta.error ?? null,
+    usage: meta.usage ?? null,
+    durationSeconds: meta.durationSeconds ?? null,
     paths,
   };
   writeFileSync(paths.meta, JSON.stringify(record, null, 2));
@@ -93,20 +96,37 @@ export function reconcile(job) {
   if (job.status !== "running") return job;
   if (isAlive(job.pid)) return job;
 
-  const output = readLogSafe(job.paths.output).trim();
-  const logText = readLogSafe(job.paths.log);
-  const scan = scanAgyLog(logText);
+  // output.txt is the child's raw stdout, i.e. the same JSON envelope a foreground
+  // run parses. The log scan is the fallback for when that file came back empty.
+  const envelope = parseEnvelope(readLogSafe(job.paths.output));
+  const scan = scanAgyLog(readLogSafe(job.paths.log));
 
   job.finishedAt = nowIso();
-  job.conversationId = job.conversationId || scan.conversationId;
-  if (output) {
+  job.conversationId = job.conversationId || envelope.conversationId || scan.conversationId;
+  job.usage = job.usage || envelope.usage || null;
+  job.durationSeconds = job.durationSeconds ?? envelope.durationSeconds ?? null;
+
+  if (isSuccess(envelope)) {
     job.status = "done";
-  } else if (scan.error) {
+    job.error = null;
+  } else if (isCancelled(envelope)) {
+    job.status = "cancelled";
+    job.error = null;
+  } else if (isFullyDenied(envelope)) {
+    // SUCCESS status, empty response, no error — the refusals are only in
+    // denied_actions. Recording this as "done" would hide it behind /status.
     job.status = "failed";
-    job.error = scan.error.message + (scan.error.resetsIn ? ` (resets in ${scan.error.resetsIn})` : "");
+    job.error = describeDenied(envelope.deniedActions);
   } else {
-    // No output, no detected error: treat as done-but-empty.
-    job.status = "done";
+    const message = envelope.error || (scan.error && scan.error.message) || null;
+    if (message) {
+      job.status = "failed";
+      const resetsIn = scan.error && scan.error.resetsIn;
+      job.error = message + (resetsIn ? ` (resets in ${resetsIn})` : "");
+    } else {
+      // No envelope, no detected error: treat as done-but-empty.
+      job.status = "done";
+    }
   }
   return writeJob(job);
 }

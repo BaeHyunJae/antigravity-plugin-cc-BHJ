@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scanAgyLog, stripGlogPrefix } from "../plugins/antigravity/scripts/lib/logscan.mjs";
+import { scanAgyLog, stripGlogPrefix, scanStderr } from "../plugins/antigravity/scripts/lib/logscan.mjs";
 
 const QUOTA_LOG = `I0531 16:30:42 1 server.go:755] Created conversation d112284b-3fbb-40bc-b559-5770aa771494
 I0531 16:30:42 1 printmode.go:130] Print mode: conversation=d112284b-3fbb-40bc-b559-5770aa771494, sending message
@@ -48,4 +48,64 @@ test("returns null error on clean log", () => {
 
 test("stripGlogPrefix is a no-op on plain text", () => {
   assert.equal(stripGlogPrefix("just a message"), "just a message");
+});
+
+// Verbatim from the log of a run that SUCCEEDED on agy 1.2.x. Startup races make
+// the CLI write dozens of E-severity "not logged in" lines and several lines that
+// merely mention quota, before it goes on to answer normally. Treating severity or
+// the bare word "quota" as an error signal turns every fallback-path run into a
+// confident, wrong diagnosis.
+const HEALTHY_STARTUP_NOISE = `I0916 12:58:08.340847 1 server.go:755] Created conversation 414df2a0-9983-4cbe-aae9-152f6dbe6402
+E0916 12:58:08.349847 104 errorreport.go:224] error getting token source: You are not logged into Antigravity.
+E0916 12:58:08.350347 104 errorreport.go:224] Failed to poll ListExperiments: error getting token source: You are not logged into Antigravity.
+E0916 12:58:08.351347 85 errorreport.go:224] failed to get load code assist response: error getting token source: You are not logged into Antigravity.
+I0916 12:58:08.486252 1 server_oauth.go:196] applyAuthResult: email=user@example.com, authMethod=consumer, quotaProject=
+I0916 12:58:09.885489 285 quota_manager.go:45] doRefreshQuota: starting reload (force=true)
+W0916 12:58:12.735946 285 cache.go:135] Cache(retrieveUserQuotaSummary): Singleflight refresh failed: Post "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary": context canceled
+I0916 12:58:13.001000 1 printmode.go:130] Print mode: done`;
+
+test("a successful run's startup noise is not an error", () => {
+  const r = scanAgyLog(HEALTHY_STARTUP_NOISE);
+  assert.equal(r.error, null);
+  assert.deepEqual(r.errorLines, []);
+});
+
+test("the conversation id is still recovered from a noisy log", () => {
+  const r = scanAgyLog(HEALTHY_STARTUP_NOISE);
+  assert.equal(r.conversationId, "414df2a0-9983-4cbe-aae9-152f6dbe6402");
+});
+
+test("a real quota failure is still caught inside the same noise", () => {
+  const r = scanAgyLog(
+    HEALTHY_STARTUP_NOISE +
+      "\nE0916 12:58:14.0 1 log.go:398] agent executor error: RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 152h59m39s.",
+  );
+  assert.equal(r.error.kind, "quota");
+  assert.equal(r.error.resetsIn, "152h59m39s");
+});
+
+// --- stderr ----------------------------------------------------------------
+
+test("scanStderr extracts agy's stable error: marker", () => {
+  const r = scanStderr("error: RESOURCE_EXHAUSTED (code 429): Individual quota reached.");
+  assert.equal(r.error, "RESOURCE_EXHAUSTED (code 429): Individual quota reached.");
+  assert.equal(r.truncated, false);
+});
+
+test("scanStderr flags the truncation note", () => {
+  const r = scanStderr("error: stream ended early (response may be truncated)");
+  assert.equal(r.error, "stream ended early");
+  assert.equal(r.truncated, true);
+});
+
+test("scanStderr recognizes agy's own print-timeout partial output", () => {
+  const r = scanStderr("[agy] print timeout after 8s with turn in progress; returning partial output");
+  assert.equal(r.timedOut, true);
+  assert.equal(r.truncated, true);
+  assert.equal(r.error, null);
+});
+
+test("scanStderr is quiet on empty or noisy-but-fine stderr", () => {
+  assert.deepEqual(scanStderr(""), { error: null, truncated: false, timedOut: false });
+  assert.equal(scanStderr("loading plugins...\nready\n").error, null);
 });

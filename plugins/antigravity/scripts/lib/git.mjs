@@ -16,6 +16,45 @@ export function isGitRepo(cwd) {
   return git(["rev-parse", "--is-inside-work-tree"], cwd).stdout === "true";
 }
 
+function countFiles(diff) {
+  const m = String(diff).match(/^diff --git /gm);
+  return m ? m.length : 0;
+}
+
+/**
+ * Trim a diff to a byte budget at a file boundary.
+ *
+ * A real working tree outgrows the prompt budget easily — this repo's own review diff
+ * is 160 KB against a 100 KiB cap. Cutting blindly leaves the model staring at half a
+ * hunk with the closing fence and the trailing instructions gone, and nothing tells the
+ * caller their review only covered part of the change.
+ *
+ * @returns {{ diff: string, truncated: boolean, shownFiles: number, totalFiles: number }}
+ */
+export function truncateDiff(diff, maxBytes) {
+  const text = String(diff || "");
+  const totalFiles = countFiles(text);
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) {
+    return { diff: text, truncated: false, shownFiles: totalFiles, totalFiles };
+  }
+
+  const kept = [];
+  let bytes = 0;
+  let lastBoundary = 0;
+  for (const line of text.split("\n")) {
+    const size = Buffer.byteLength(line, "utf8") + 1;
+    if (bytes + size > maxBytes) break;
+    kept.push(line);
+    bytes += size;
+    if (line.startsWith("diff --git ")) lastBoundary = kept.length - 1;
+  }
+
+  // Drop the half-included trailing file, unless that would leave nothing at all.
+  const cut = lastBoundary > 0 ? kept.slice(0, lastBoundary) : kept;
+  const out = cut.join("\n");
+  return { diff: out, truncated: true, shownFiles: countFiles(out), totalFiles };
+}
+
 /**
  * Resolve what to review.
  *  - base provided  -> diff base...HEAD (branch review) + any uncommitted changes

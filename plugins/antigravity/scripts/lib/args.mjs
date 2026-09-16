@@ -12,10 +12,17 @@ const VALUED_FLAGS = new Set([
   "base",
   "conversation",
   "print-timeout",
-  "model", // forwarded as agy's --model <slug>; requires agy >= MIN_MODEL_FLAG_VERSION (see lib/agy.mjs)
+  "model", // forwarded as agy's --model <slug>
+  "effort", // forwarded as agy's --effort <low|medium|high>
 ]);
 
-const REPEATABLE_VALUED_FLAGS = new Set(["add-dir"]);
+// `agy-arg` is the escape hatch: one raw token per occurrence, e.g.
+//   --agy-arg --mode --agy-arg plan
+// One token at a time (rather than a single quoted string) because splitting a
+// shell-quoted string correctly without a dependency is exactly the kind of
+// silent-wrong-argv bug this plugin exists to avoid. `--` is already reserved for
+// "everything after this is prompt text", so it cannot serve as the passthrough.
+const REPEATABLE_VALUED_FLAGS = new Set(["add-dir", "agy-arg"]);
 
 const BOOLEAN_ALIASES = {
   c: "continue",
@@ -86,4 +93,23 @@ export function parseArgs(argv) {
 /** True when any of the given boolean flag names is set. */
 export function hasFlag(parsed, ...names) {
   return names.some((name) => parsed.flags[name] === true);
+}
+
+/**
+ * Reject `--agy-arg` tokens that would overwrite a flag the companion owns.
+ * Letting a caller set `-p`, `--log-file` or `--output-format` would break the
+ * prompt, the error channel or the envelope the companion parses.
+ *
+ * @param {string[]} tokens
+ * @param {Set<string>} reserved
+ * @returns {{ ok: boolean, rejected: string[] }}
+ */
+export function validateExtraArgs(tokens, reserved) {
+  const rejected = [];
+  for (const raw of tokens || []) {
+    const token = String(raw);
+    const name = token.startsWith("-") ? token.split("=")[0] : token;
+    if (reserved.has(name)) rejected.push(name);
+  }
+  return { ok: rejected.length === 0, rejected };
 }
