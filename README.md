@@ -96,6 +96,8 @@ Cross-model review of your working tree. Read-only and sandboxed — `agy` reads
 
 Returns Antigravity's review of the embedded diff. Pair it with your own review for two models on one change.
 
+`--base <ref>` reviews `<ref>...HEAD`, and includes your uncommitted changes as well — the heading says so as `<ref>...HEAD (+ working tree)`. A wide range will not fit in one prompt, because the prompt travels in argv and Windows caps a command line at 32,767 characters. The diff is then trimmed at a file boundary and the output tells you how many of the changed files were covered, so a partial review never reads like a full one. Narrow the range when you see that warning.
+
 ### `/antigravity:delegate` ⭐
 
 Hand a task to Antigravity. Write-capable by default — it can edit files and run commands — so contain it when you want to.
@@ -150,7 +152,9 @@ The plugin is a thin layer over `agy`'s headless mode. Honestly, most of the val
 - **Headless delegation.** Commands run `agy -p "<task>"` and stream the result back. `delegate` is write-capable; `review` is sandboxed and read-only.
 - **Background jobs.** `--background` spawns a detached run, tracks it per-repo, and lets you poll with `status` / collect with `result` / stop with `cancel`.
 - **Error surfacing — the differentiator.** A failed `agy` run is easy to mistake for a successful one, so the companion checks three signals in order: the **exit code** (non-zero is a confirmed failure since `agy` 1.1.1, but exit 0 proves nothing — 1.1.20 narrowed it to cascade-level failures), then the **JSON envelope** on stdout (`--output-format json`, which carries `status`, `error`, `conversation_id` and token usage), then the **log file** as a last resort for the case where stdout comes back empty on a non-TTY pipe. What you get is the real signal: `RESOURCE_EXHAUSTED (429) … Resets in <duration>`, auth failures, and backend errors, instead of a blank answer that looks like success.
-- **Run cost on every response.** Each reply ends with `6.0s · 31.7k in / 588 out / 470 thinking` — the thinking and cached components show up only when they are non-zero. Quota exhaustion is the most common failure here, and this is the only warning you get before it happens.
+- **Run cost on every response.** Each reply ends with a line like `6.0s · 31.7k in / 588 out / 470 thinking`. Quota exhaustion is the most common failure here, and this is the only warning you get before it happens.
+
+  Reading it: the thinking and cached components appear only when they are non-zero. On a **continued** thread the first field is `turn 2` rather than a duration, because `agy` reports elapsed time since the conversation was created, not since this turn began — a resumed turn would otherwise claim to have taken forty minutes. And the input count is everything `agy` sent the model, not the size of your prompt: a review of a 12 KB diff spent 237k input tokens while a review of a 32 KB diff spent 63k, because what dominates is how much of the repo the agent chose to read, not how much you handed it.
 
 **On model selection:** pass `--model <slug>` to `delegate`/`resume`/`review` to override the model for that session. Run `agy models` for the live catalog — the slugs move between releases, so don't copy one from memory. Most of them already encode a reasoning effort (`gemini-3.8-flash-high`); `--effort <low|medium|high>` is for the base model names that require one, and `agy` rejects a mismatched pair itself rather than silently picking. Without `--model` the run uses whatever `/model` set inside the TUI, persisted in its `settings.json`.
 
