@@ -8,7 +8,7 @@
 // Subcommands: setup | delegate | review | resume | status | result | cancel
 //   (aliases: run -> delegate)
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { parseArgs, hasFlag, validateExtraArgs } from "./lib/args.mjs";
@@ -244,6 +244,18 @@ function runAgyTask(parsed, { kind, title, prompt, buildPrompt, readOnly, resume
 
   const watchdogMs = goDurationToMs(printTimeout) + 60_000;
   const result = runForeground({ bin: bin.path, args, cwd, logFile: job.paths.log, watchdogMs });
+
+  // Persist exactly what a background run would have written. A background job's stdout
+  // lands in output.txt and `/antigravity:result` replays it from there; a foreground run
+  // used to keep its stdout in memory only, so asking for the result afterwards found an
+  // empty job and reported "no output and no recognizable error" — for successful runs too.
+  try {
+    writeFileSync(job.paths.output, result.stdout || "");
+    if (result.stderr) writeFileSync(job.paths.err, result.stderr);
+  } catch {
+    /* replay is a convenience; never fail the run over it */
+  }
+
   const outcome = classifyRun(result);
 
   job.conversationId = outcome.conversationId || job.conversationId;
@@ -279,7 +291,12 @@ function runAgyTask(parsed, { kind, title, prompt, buildPrompt, readOnly, resume
   }
 
   job.status = "failed";
-  job.error = outcome.error ? outcome.error.message : null;
+  // Keep the reset window in the stored message, the way reconcile() does for background
+  // jobs — otherwise replaying a quota failure from the job record loses the one detail
+  // the user actually needs.
+  job.error = outcome.error
+    ? outcome.error.message + (outcome.error.resetsIn ? ` (resets in ${outcome.error.resetsIn})` : "")
+    : null;
   writeJob(job);
   out(render.renderError(outcome.error, meta));
 }
@@ -554,7 +571,40 @@ function cmdResult(parsed) {
     );
     return;
   }
-  out(render.renderError(pickError(scan, envelope.error), meta));
+
+  // A job we cancelled ourselves has no envelope saying so — `cancelJob` just marks the
+  // record. Without this it falls through to the generic error and reports a backend
+  // failure for something the user deliberately stopped.
+  if (job.status === "cancelled") {
+    out(
+      render.renderResponse(envelope.response || "_This run was cancelled before it produced output._", {
+        ...meta,
+        cancelled: true,
+      }),
+    );
+    return;
+  }
+
+  // Jobs recorded before foreground runs persisted their stdout have no envelope to
+  // replay. The job record still knows how the run ended, so use it rather than
+  // claiming nothing recognizable happened — and put it through the same classifier, so
+  // a stored quota or auth failure still renders with its reset window and next steps
+  // instead of a bare backend message.
+  const error = pickError(scan, envelope.error || job.error);
+  if (error) {
+    out(render.renderError(error, meta));
+    return;
+  }
+  if (job.status === "done") {
+    out(
+      render.renderResponse(
+        "_This run finished, but its output was not retained — it predates the companion storing foreground results. Re-run the task, or reopen the thread with `agy --conversation <id>`._",
+        meta,
+      ),
+    );
+    return;
+  }
+  out(render.renderError(null, meta));
 }
 
 function cmdCancel(parsed) {

@@ -85,6 +85,20 @@ and three of its core assumptions had since stopped being true.
   `duration_seconds` is wall time since the conversation was created (measured: 2258s on turn 2),
   not the turn — printed beside this turn's token counts it read as a 38-minute run. Continued
   threads now report `turn N` and let the token counts carry the cost.
+- **`/antigravity:result` no longer loses a foreground run.** A background job's stdout lands in
+  `output.txt` and `result` replays it from there; a foreground run kept its stdout in memory
+  only, so asking for the result afterwards reported "no output and no recognizable error" —
+  including for runs that had just succeeded, and for failures whose specific message the user
+  had already seen live. Foreground runs now persist the same files a background run writes.
+  A job recorded before that says its output was not retained instead of implying it failed.
+- **`/antigravity:result` on a cancelled job no longer reports a backend failure.** `cancelJob`
+  only marks the record — there is no envelope saying `CANCELED` — so a job the user stopped
+  themselves fell through to the generic error path.
+- **A failure replayed from the job record keeps its classification.** The record fallback
+  hardcoded a generic backend error, so a stored quota failure lost its reset window and its
+  next steps; it now goes through the same classifier as a live one. Relatedly, the reset window
+  is now persisted into the stored message for foreground runs, matching what background jobs
+  already did.
 - A run that fails before reaching the model no longer prints `0.0s · 0 in / 0 out` under the
   error.
 

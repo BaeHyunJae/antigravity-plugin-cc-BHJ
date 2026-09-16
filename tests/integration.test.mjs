@@ -1,7 +1,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, chmodSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, chmodSync, writeFileSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -300,6 +300,108 @@ test("a backgrounded permission-denied run is not filed as done", () => {
   assert.match(result.stdout, /refused/i);
   assert.match(result.stdout, /RunCommand/);
   assert.doesNotMatch(result.stdout, /returned an empty response/i);
+});
+
+test("result replays a foreground run instead of finding an empty job", () => {
+  // Background runs pipe stdout into output.txt and `result` replays it from there.
+  // Foreground runs kept theirs in memory only, so asking for the result afterwards
+  // reported "no output and no recognizable error" — for successful runs too.
+  const home = mkdtempSync(join(tmpdir(), "agy-home-replay-"));
+  const cwd = mkdtempSync(join(tmpdir(), "agy-cwd-"));
+  const call = (args, mode) =>
+    spawnSync("node", [COMPANION, ...args], {
+      cwd,
+      env: { ...process.env, ANTIGRAVITY_CC_AGY_BIN: FAKE_AGY, ANTIGRAVITY_CC_HOME: home, FAKE_AGY_MODE: mode },
+      encoding: "utf8",
+      windowsHide: true,
+    }).stdout;
+
+  call(["delegate", "say hi"], "success");
+  const replayed = call(["result"], "success");
+  assert.match(replayed, /Antigravity \(fake\) reply/);
+  assert.doesNotMatch(replayed, /no recognizable error/i);
+});
+
+test("result keeps the specific error of a failed foreground run", () => {
+  const home = mkdtempSync(join(tmpdir(), "agy-home-replayerr-"));
+  const cwd = mkdtempSync(join(tmpdir(), "agy-cwd-"));
+  const call = (args, mode) =>
+    spawnSync("node", [COMPANION, ...args], {
+      cwd,
+      env: { ...process.env, ANTIGRAVITY_CC_AGY_BIN: FAKE_AGY, ANTIGRAVITY_CC_HOME: home, FAKE_AGY_MODE: mode },
+      encoding: "utf8",
+      windowsHide: true,
+    }).stdout;
+
+  const live = call(["delegate", "say ok"], "flag-error");
+  assert.match(live, /conflicts with --effort=high/);
+  // The follow-up must not be worse than what the user already saw.
+  const later = call(["result"], "flag-error");
+  assert.match(later, /conflicts with --effort=high/);
+  assert.doesNotMatch(later, /no recognizable error/i);
+});
+
+test("a job recorded before results were retained says so, rather than implying failure", () => {
+  const home = mkdtempSync(join(tmpdir(), "agy-home-legacy-"));
+  const cwd = mkdtempSync(join(tmpdir(), "agy-cwd-"));
+  const env = { ...process.env, ANTIGRAVITY_CC_AGY_BIN: FAKE_AGY, ANTIGRAVITY_CC_HOME: home, FAKE_AGY_MODE: "success" };
+  spawnSync("node", [COMPANION, "delegate", "say hi"], { cwd, env, encoding: "utf8", windowsHide: true });
+
+  // Recreate the old on-disk shape: a finished job with no stored output.
+  const jobsRoot = join(home, "jobs");
+  const jobName = readdirSync(jobsRoot).find((n) => n.startsWith("agy-"));
+  assert.ok(jobName, "expected an agy-* job directory to exist");
+  rmSync(join(jobsRoot, jobName, "output.txt"), { force: true });
+
+  const later = spawnSync("node", [COMPANION, "result"], { cwd, env, encoding: "utf8", windowsHide: true }).stdout;
+  assert.match(later, /output was not retained/i);
+  assert.doesNotMatch(later, /no recognizable error/i);
+});
+
+test("result on a cancelled job says it was cancelled, not that the backend failed", () => {
+  // `cancelJob` only marks the record — there is no envelope saying CANCELED. Without an
+  // explicit branch this fell through to the generic error and reported a backend failure
+  // for something the user deliberately stopped. Found by a cross-model review of the fix
+  // that introduced the surrounding block.
+  const home = mkdtempSync(join(tmpdir(), "agy-home-cancelled-"));
+  const cwd = mkdtempSync(join(tmpdir(), "agy-cwd-"));
+  const env = { ...process.env, ANTIGRAVITY_CC_AGY_BIN: FAKE_AGY, ANTIGRAVITY_CC_HOME: home, FAKE_AGY_MODE: "success" };
+  spawnSync("node", [COMPANION, "delegate", "a long task"], { cwd, env, encoding: "utf8", windowsHide: true });
+
+  const jobsRoot = join(home, "jobs");
+  const jobName = readdirSync(jobsRoot).find((n) => n.startsWith("agy-"));
+  assert.ok(jobName, "expected an agy-* job directory to exist");
+  const metaPath = join(jobsRoot, jobName, "meta.json");
+  const meta = JSON.parse(readFileSync(metaPath, "utf8"));
+  meta.status = "cancelled";
+  meta.error = null;
+  writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+  rmSync(join(jobsRoot, jobName, "output.txt"), { force: true });
+
+  const later = spawnSync("node", [COMPANION, "result"], { cwd, env, encoding: "utf8", windowsHide: true }).stdout;
+  assert.match(later, /cancelled/i);
+  assert.doesNotMatch(later, /backend error/i);
+  assert.doesNotMatch(later, /no recognizable error/i);
+});
+
+test("a stored quota failure keeps its reset window when replayed from the job record", () => {
+  // The job-record fallback used to hardcode `kind: "backend"`, which threw away the
+  // quota card and its reset window for exactly the failure this plugin cares most about.
+  const home = mkdtempSync(join(tmpdir(), "agy-home-storedquota-"));
+  const cwd = mkdtempSync(join(tmpdir(), "agy-cwd-"));
+  const env = { ...process.env, ANTIGRAVITY_CC_AGY_BIN: FAKE_AGY, ANTIGRAVITY_CC_HOME: home, FAKE_AGY_MODE: "quota" };
+  spawnSync("node", [COMPANION, "delegate", "expensive"], { cwd, env, encoding: "utf8", windowsHide: true });
+
+  const jobsRoot = join(home, "jobs");
+  const jobName = readdirSync(jobsRoot).find((n) => n.startsWith("agy-"));
+  assert.ok(jobName, "expected an agy-* job directory to exist");
+  // Force the job-record path: no stored stdout, and no log to re-derive from.
+  rmSync(join(jobsRoot, jobName, "output.txt"), { force: true });
+  rmSync(join(jobsRoot, jobName, "agy.log"), { force: true });
+
+  const later = spawnSync("node", [COMPANION, "result"], { cwd, env, encoding: "utf8", windowsHide: true }).stdout;
+  assert.match(later, /quota is exhausted/i);
+  assert.match(later, /152h59m39s/);
 });
 
 test("status + result work across invocations sharing a home", () => {
