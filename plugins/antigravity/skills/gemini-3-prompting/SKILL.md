@@ -1,27 +1,27 @@
 ---
 name: gemini-3-prompting
-description: "How to write effective prompts for Google Antigravity / Gemini 3.5 agents (used when delegating to or reviewing with the antigravity plugin)"
+description: "How to write effective prompts for Google Antigravity agents (used when delegating to or reviewing with the antigravity plugin)"
 ---
 
-# Prompting Gemini 3.5 through Antigravity
+# Prompting Antigravity
 
-You drive `agy` (Antigravity, Gemini 3.5) in print mode through the companion's `delegate`, `review`, and `resume` subcommands. Print mode is headless: one prompt in, one result out. The agent cannot stop to ask you a clarifying question, so the prompt you send is the whole brief. Write it like a work order for a fast, literal junior engineer.
+You drive `agy` (Antigravity) in print mode through the companion's `delegate`, `review`, and `resume` subcommands. Print mode is headless: one prompt in, one result out. The agent cannot stop to ask you a clarifying question, so the prompt you send is the whole brief. Write it like a work order for a fast, literal junior engineer.
 
 This guide is the short version. The depth lives in two reference files:
 - **[Recipes](references/gemini-3-recipes.md)** — copy-paste templates for fixes, features, review, investigation, refactor, and tests.
 - **[Anti-patterns](references/gemini-3-antipatterns.md)** — the common mistakes and their fixes.
 
-## How Gemini 3.5 behaves (and how to prompt for it)
+## How the Antigravity agent behaves (and how to prompt for it)
 
-Based on Google's Gemini 3.5 developer/prompting guides and practitioner write-ups:
+Based on Google's Gemini developer/prompting guides and practitioner write-ups. These hold across the model generations `agy` has shipped; run `agy models` to see which one you are actually on.
 
 - **It follows instructions literally.** If you say "fix the bug," it fixes *a* bug its own way. If you say "make `parseDate` return `null` on empty input and add a test for it," you get exactly that. Spell out the target behavior, not the vibe.
-- **It is terse by default.** Gemini 3.5 gives direct answers and skips narration unless you ask for it. If you want a written plan or an explanation of the change, request it explicitly.
+- **It is terse by default.** It gives direct answers and skips narration unless you ask for it. If you want a written plan or an explanation of the change, request it explicitly.
 - **It plans and reasons over multiple steps.** It is strong at decomposing a goal into steps and executing them. Give it the *goal* and the *constraints*; let it own the *how*. Over-scripting the steps fights the model.
-- **It handles long context well, but cares about order.** Put the data/code/diff first, then your instruction last. Anchor the ask to the material ("Based on the diff above, ..."). Critical constraints — especially "do NOT touch X" — go at the **end** of the prompt; Gemini 3.5 can drop a negative constraint that appears too early in a long prompt.
+- **It handles long context well, but cares about order.** Put the data/code/diff first, then your instruction last. Anchor the ask to the material ("Based on the diff above, ..."). Critical constraints — especially "do NOT touch X" — go at the **end** of the prompt; the model can drop a negative constraint that appears too early in a long prompt.
 - **One markup style, used consistently.** Markdown headings or simple labels are enough. Don't mix XML tags and Markdown in the same prompt.
 
-Don't pick the model by describing it in the prompt text ("use Gemini 3.5 Pro") — it won't do anything. If the user wants a specific model, pass `--model <slug>` on the `delegate`/`resume`/`review` call instead (needs `agy >= 1.1.10`); otherwise the session uses whatever `/model` set inside the TUI, persisted in `settings.json`.
+Don't pick the model by describing it in the prompt text ("use the Pro model") — it won't do anything. Pass `--model <slug>` on the `delegate`/`resume`/`review` call instead, with `agy models` for the live slug list; otherwise the session uses whatever `/model` set inside the TUI, persisted in `settings.json`. Most slugs already encode a reasoning effort, so only add `--effort` when the slug needs one — `agy` rejects a mismatched pair itself.
 
 ## A solid delegate prompt has five parts
 
@@ -50,5 +50,5 @@ If you're unsure whether a task should write, start `--read-only` to get the pla
 ## Limits to be honest about
 
 - **Print mode won't ask you questions.** Ambiguity becomes a guess. Front-load the detail.
-- **Preview quota.** On quota exhaustion `agy` exits cleanly with empty output; the companion surfaces `RESOURCE_EXHAUSTED (429) ... Resets in <dur>`. If you see that, wait for the reset — re-prompting won't help.
+- **Preview quota.** On quota exhaustion the run fails and the companion surfaces `RESOURCE_EXHAUSTED (429) ... Resets in <dur>`. If you see that, wait for the reset — re-prompting won't help. The run-cost line on each response (`12.4s · 8.2k in / 1.1k out`) is the early warning.
 - **Auth is the user's job.** OAuth via Google account, no API key. The plugin never logs anyone in.

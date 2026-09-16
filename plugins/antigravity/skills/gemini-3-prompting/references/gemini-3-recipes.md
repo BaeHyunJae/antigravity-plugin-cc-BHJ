@@ -1,6 +1,6 @@
-# Gemini 3.5 prompt recipes (Antigravity print mode)
+# Antigravity prompt recipes (print mode)
 
-Copy a template, fill the brackets, and pass it as the task to the companion. Order matters: material first, instruction last, "do NOT touch" constraints at the very end (Gemini 3.5 can drop a negative constraint that appears too early). Print mode can't ask follow-ups, so leave no blanks.
+Copy a template, fill the brackets, and pass it as the task to the companion. Order matters: material first, instruction last, "do NOT touch" constraints at the very end (the model can drop a negative constraint that appears too early). Print mode can't ask follow-ups, so leave no blanks.
 
 Companion calls referenced below:
 - `delegate <task...>` — write-capable; add `--read-only` or `--sandbox` to contain it.
