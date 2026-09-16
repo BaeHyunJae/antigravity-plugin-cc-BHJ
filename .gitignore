@@ -6,3 +6,4 @@ tmp/
 .antigravity-cc/
 coverage/
 *.tsbuildinfo
+Context/
