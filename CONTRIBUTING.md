@@ -1,7 +1,7 @@
 # Contributing to antigravity-plugin-cc
 
 Thanks for helping out. This plugin lets Claude Code users drive Google's
-Antigravity CLI (`agy`, powered by Gemini 3.5) without leaving Claude Code.
+Antigravity CLI (`agy`) without leaving Claude Code.
 Contributions that keep it thin, honest, and dependency-free are very welcome.
 
 ## Repo layout
@@ -13,7 +13,11 @@ plugins/antigravity/
   agents/                            # antigravity:antigravity-pair subagent (.md)
   skills/                            # internal skills (SKILL.md, user-invocable: false)
   scripts/antigravity.mjs            # the Node companion (entry point)
-  scripts/lib/agy.mjs                # the agy contract: flags, log parsing, job state
+  scripts/lib/agy.mjs                # the agy contract: flags, version gate, spawning
+  scripts/lib/envelope.mjs           # agy's --output-format json envelope
+  scripts/lib/logscan.mjs            # log + stderr fallback when stdout comes back empty
+  scripts/lib/jobs.mjs               # background job state
+scripts/gen-cli-reference.mjs        # regenerates the flag tables from `agy --help`
 docs/antigravity-cli-reference.md    # the companion contract, written down
 tests/                               # npm test, with a fake `agy` fixture
 ```
@@ -45,25 +49,46 @@ a Google account, or any network access. Everything is offline.
 4. Try `/antigravity:setup`, then `/antigravity:delegate`, `/antigravity:review`,
    and `/antigravity:resume`.
 
-Heads up: the preview tier has a quota. When it's exhausted, `agy` exits 0 with
-empty stdout and the companion surfaces the `RESOURCE_EXHAUSTED (429)` line from
-the `--log-file`. That's expected behavior, not a bug.
+Heads up: the preview tier has a quota. When it's exhausted the run fails and the
+companion surfaces the `RESOURCE_EXHAUSTED (429)` line with its reset window.
+That's expected behavior, not a bug.
 
 ## Keep the contract in sync
 
 `docs/antigravity-cli-reference.md` and `scripts/lib/agy.mjs` describe the same
 thing: how we invoke `agy` and parse its output. If `agy` changes a flag, the
-log format, or its quota behavior, update **both** in the same PR. A drift
+output format, or its quota behavior, update **both** in the same PR. A drift
 between the doc and the code is the one thing that will quietly break this
-plugin for everyone.
+plugin for everyone — it has happened once already, which is why the flag tables
+in that doc are now generated:
+
+```bash
+npm run gen:cli-ref            # rewrite the generated blocks from `agy --help`
+npm run gen:cli-ref -- --check # what CI runs
+```
 
 A few facts that must stay true (don't contradict them):
 
-- The binary is `agy`. Print mode is `agy -p`.
-- There is **no** `--model` / `-m` flag. The model is picked with `/model`
-  inside `agy` and persisted in `settings.json`. Never tell users to pass one.
+- The binary is `agy`. Print mode is `agy -p`, always with `--output-format json`.
+- **Minimum supported `agy` is 1.1.10** (`MIN_AGY_VERSION` in `lib/agy.mjs`).
+  Below it, `--model` and `--effort` are accepted and silently discarded and
+  there is no JSON output format. The companion refuses rather than carrying a
+  second code path — don't add per-flag version gates back.
+- **A zero exit code does not mean the run succeeded.** `agy` 1.1.20 narrowed
+  exit codes to cascade-level failures. Non-zero is a confirmed failure; zero
+  means "ask the envelope".
+- **Don't delete the log scan.** The envelope covers the normal path, but stdout
+  can still come back empty on a non-TTY pipe, which is exactly how we spawn
+  `agy`. That fallback is the only thing standing between that case and a blank
+  answer presented as success.
+- **Never pin a model name in prose.** The catalog moves between releases and
+  there is no `gemini-3.5-*` in it. Point at `agy models` instead. The one
+  exception is the reference doc, which states the observed default and says
+  when it was observed.
 - `delegate` is write-capable by default; `--read-only` / `--sandbox` contain it.
 - `review` is always read-only and sandboxed.
+- `agy`'s own slash commands and skills stay **enabled** in print mode so an
+  `agy`-side skill can fire; `--no-slash-commands` is the opt-out.
 
 ## Code style
 
@@ -80,9 +105,12 @@ A few facts that must stay true (don't contradict them):
 
 1. Fork and branch off `main` (`git checkout -b fix/clearer-quota-message`).
 2. Make the change. Run `npm test`. Add or update a test when behavior changes.
-3. If you touched the `agy` contract, update the doc and `lib/agy.mjs` together.
-4. Keep the PR focused — one concern per PR is easiest to review.
-5. Open the PR with a short description of what changed and why. Mention whether
+3. If you touched the `agy` contract, update the doc and `lib/agy.mjs` together,
+   and run `npm run gen:cli-ref`.
+4. Bumping the version? It lives in four files. `tests/version-sync.test.mjs`
+   fails until they agree.
+5. Keep the PR focused — one concern per PR is easiest to review.
+6. Open the PR with a short description of what changed and why. Mention whether
    you tested against real `agy` or only the fixture.
 
 Questions or ideas? Open an issue first — happy to talk it through.
