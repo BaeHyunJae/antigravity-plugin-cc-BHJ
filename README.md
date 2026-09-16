@@ -1,17 +1,17 @@
 # 🛰️ antigravity-plugin-cc
 
 <p align="center">
-  <img src="./assets/banner.png" alt="Claude Code × Antigravity — drive Google's agy CLI (Gemini 3.5) without leaving Claude Code" width="100%">
+  <img src="./assets/banner.png" alt="Claude Code × Antigravity — drive Google's agy CLI without leaving Claude Code" width="100%">
 </p>
 
-> Drive Google's Antigravity CLI (`agy`, powered by Gemini 3.5) without leaving Claude Code.
+> Drive Google's Antigravity CLI (`agy`) without leaving Claude Code.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Built by Idun Labs](https://img.shields.io/badge/built%20by-Idun%20Labs-6E56CF.svg)](https://github.com/Idun-Group)
-[![Powered by agy / Gemini 3.5](https://img.shields.io/badge/powered%20by-agy%20%2F%20Gemini%203.5-4285F4.svg)](https://antigravity.google/docs/cli-overview)
+[![Powered by agy](https://img.shields.io/badge/powered%20by-agy-4285F4.svg)](https://antigravity.google/docs/)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Idun-Group/antigravity-plugin-cc/pulls)
 
-A Claude Code plugin that hands work to `agy` — Google's Antigravity CLI — and brings the result back into your session. You stay in Claude Code; Gemini 3.5 becomes a second model on tap. Think of it as the Antigravity counterpart to [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc).
+A Claude Code plugin that hands work to `agy` — Google's Antigravity CLI — and brings the result back into your session. You stay in Claude Code; Gemini becomes a second model on tap. Think of it as the Antigravity counterpart to [`openai/codex-plugin-cc`](https://github.com/openai/codex-plugin-cc).
 
 ---
 
@@ -19,8 +19,8 @@ A Claude Code plugin that hands work to `agy` — Google's Antigravity CLI — a
 
 Seven slash commands, all under the `/antigravity:` namespace. Each one shells out to a small Node companion that wraps `agy` in headless (`-p`) mode and manages background jobs.
 
-- **`/antigravity:setup`** — check that `agy` is installed, find its binary and version, and get a best-effort read on whether you're signed in. Never logs you in.
-- **`/antigravity:delegate`** — hand a task to Gemini 3.5. Write-capable by default; can be sandboxed or made read-only, and can run in the background.
+- **`/antigravity:setup`** — check that `agy` is installed and new enough, find its binary and version, and get a best-effort read on whether you're signed in. Never logs you in.
+- **`/antigravity:delegate`** — hand a task to Antigravity. Write-capable by default; can be sandboxed or made read-only, and can run in the background.
 - **`/antigravity:review`** — read-only cross-model review of your current diff (or `base...HEAD`). Sandboxed.
 - **`/antigravity:resume`** — continue the most recent Antigravity conversation (or a specific one) with a follow-up.
 - **`/antigravity:status`** — list background jobs for this repo, or inspect one.
@@ -35,7 +35,7 @@ You already trust Claude Code for the loop you're in. Sometimes you want a diffe
 
 This plugin makes that one slash command away:
 
-- **Second opinion.** `/antigravity:review` sends your diff to Gemini 3.5 and reads its critique back. Different model, different blind spots — useful precisely because it isn't the model that wrote the code.
+- **Second opinion.** `/antigravity:review` sends your diff to Antigravity and reads its critique back. Different model, different blind spots — useful precisely because it isn't the model that wrote the code.
 - **Second pair of hands.** `/antigravity:delegate` offloads a self-contained task (a refactor, a script, a migration) to `agy` while you keep working. Run it in the background and collect the result later.
 - **Separate quota.** `agy` runs on your own local Antigravity auth and its own free-preview quota. Offloading to it doesn't draw down your Claude Code usage.
 
@@ -45,7 +45,7 @@ No new account, no API keys, no context switch. If you have `agy` installed and 
 
 ## Requirements
 
-- **`agy`** — the Antigravity CLI, installed and signed in (Google account, browser OAuth, free preview tier). See install one-liners below.
+- **`agy` >= 1.1.10** — the Antigravity CLI, installed and signed in (Google account, browser OAuth, free preview tier). See install one-liners below. Older builds silently ignore `--model`/`--effort` in headless runs and predate the JSON output format this plugin reads, so it refuses to run against them — `agy update` fixes that.
 - **Node.js >= 18** — the companion is a small ESM script with zero runtime dependencies.
 
 Install `agy`:
@@ -94,11 +94,11 @@ Cross-model review of your working tree. Read-only and sandboxed — `agy` reads
 /antigravity:review --base main the auth refactor in this branch
 ```
 
-Returns Gemini 3.5's review of the embedded diff. Pair it with your own review for two models on one change.
+Returns Antigravity's review of the embedded diff. Pair it with your own review for two models on one change.
 
 ### `/antigravity:delegate` ⭐
 
-Hand a task to Gemini 3.5. Write-capable by default — it can edit files and run commands — so contain it when you want to.
+Hand a task to Antigravity. Write-capable by default — it can edit files and run commands — so contain it when you want to.
 
 ```text
 /antigravity:delegate add a --json flag to the export command and update the tests
@@ -149,9 +149,12 @@ The plugin is a thin layer over `agy`'s headless mode. Honestly, most of the val
 
 - **Headless delegation.** Commands run `agy -p "<task>"` and stream the result back. `delegate` is write-capable; `review` is sandboxed and read-only.
 - **Background jobs.** `--background` spawns a detached run, tracks it per-repo, and lets you poll with `status` / collect with `result` / stop with `cancel`.
-- **Error surfacing — the differentiator.** On quota exhaustion, `agy` exits `0` with **empty stdout** — success-looking, but nothing happened. The companion scans `agy`'s `--log-file` to catch that case and surface the real signal: `RESOURCE_EXHAUSTED (429) … Resets in <duration>`, auth failures, and backend errors that the exit code hides. It also recovers the **conversation id** from the log so `resume` and `result` actually work.
+- **Error surfacing — the differentiator.** A failed `agy` run is easy to mistake for a successful one, so the companion checks three signals in order: the **exit code** (non-zero is a confirmed failure since `agy` 1.1.1, but exit 0 proves nothing — 1.1.20 narrowed it to cascade-level failures), then the **JSON envelope** on stdout (`--output-format json`, which carries `status`, `error`, `conversation_id` and token usage), then the **log file** as a last resort for the case where stdout comes back empty on a non-TTY pipe. What you get is the real signal: `RESOURCE_EXHAUSTED (429) … Resets in <duration>`, auth failures, and backend errors, instead of a blank answer that looks like success.
+- **Run cost on every response.** Each reply ends with `6.0s · 31.7k in / 588 out / 470 thinking` — the thinking and cached components show up only when they are non-zero. Quota exhaustion is the most common failure here, and this is the only warning you get before it happens.
 
-**On model selection:** pass `--model <slug>` to `delegate`/`resume`/`review` to override the model for that session (default is Gemini 3.5 Flash). Run `agy models` to list current slugs, e.g. `gemini-3.1-pro-high`, `claude-sonnet-4-6`. This needs `agy >= 1.1.10` — older builds silently ignore `--model` in headless runs, so the companion checks the installed version first and drops the flag with a warning instead of passing one that would quietly do nothing (`agy update` to fix). Without `--model`, or on an older `agy`, the default stays whatever `/model` set inside the TUI, persisted in its `settings.json`.
+**On model selection:** pass `--model <slug>` to `delegate`/`resume`/`review` to override the model for that session. Run `agy models` for the live catalog — the slugs move between releases, so don't copy one from memory. Most of them already encode a reasoning effort (`gemini-3.8-flash-high`); `--effort <low|medium|high>` is for the base model names that require one, and `agy` rejects a mismatched pair itself rather than silently picking. Without `--model` the run uses whatever `/model` set inside the TUI, persisted in its `settings.json`.
+
+**Two more escape valves:** `--no-slash-commands` stops `agy` expanding its own slash commands and skills in your prompt (they stay enabled by default, so an `agy`-side skill can fire), and `--agy-arg <token>` passes one raw token straight through to `agy` — repeat it per token, e.g. `--agy-arg --mode --agy-arg plan` — for flags this plugin doesn't wrap yet.
 
 ---
 
@@ -161,13 +164,16 @@ The plugin is a thin layer over `agy`'s headless mode. Honestly, most of the val
 You've hit the free-preview limit. The quota is **per Google account** (`agy` reports *"Individual quota reached"*), and the companion tells you when it resets (e.g. *"Resets in 152h"*). Options: wait for the reset, or sign `agy` into a different Google account (`! agy`, then sign in). Claude Code can keep handling the task itself in the meantime. This is a preview-tier limit, not a bug.
 
 **Empty output but no error.**
-Almost always quota — `agy` exits `0` with empty stdout when exhausted. Re-run the command; the companion reads the log and should now report the `RESOURCE_EXHAUSTED` reset time.
+Almost always quota. The companion reads the JSON envelope, and falls back to `agy`'s log when stdout comes back empty, so it should report the `RESOURCE_EXHAUSTED` reset time rather than a blank answer. If you genuinely get nothing, the log path is printed with the error — open it.
 
 **"Not authenticated" / setup says you're not signed in.**
 Run `agy` once interactively to complete the Google browser OAuth: in Claude Code, type `! agy`, sign in, then quit. The plugin never authenticates for you.
 
 **`agy` is in a custom path.**
-The companion looks on `PATH`, then `~/.local/bin/agy`. To point it elsewhere, set `ANTIGRAVITY_CC_AGY_BIN` to the full path of your binary.
+The companion looks on `PATH`, then `~/.local/bin/agy` (and `%LOCALAPPDATA%gyin` on Windows). To point it elsewhere, set `ANTIGRAVITY_CC_AGY_BIN` to the full path of your binary.
+
+**"agy is too old".**
+The plugin needs `agy` >= 1.1.10. Run `agy update`, then `/antigravity:setup`. It refuses rather than running with flags an older build would accept and discard.
 
 **Do I need a separate account or an API key?**
 No. There's no API key for the preview tier. The plugin uses whatever local `agy` auth you already have — sign in once with your Google account and you're set.
