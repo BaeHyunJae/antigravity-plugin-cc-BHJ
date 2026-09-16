@@ -1,18 +1,19 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-marketplace-manifest.json",
   "name": "idun-antigravity",
   "owner": {
     "name": "Idun Labs",
     "url": "https://github.com/Idun-Group"
   },
   "metadata": {
-    "description": "Use Google Antigravity (the agy CLI, powered by Gemini 3.5) from inside Claude Code: delegate tasks, get a cross-model second opinion, and run reviews.",
-    "version": "0.1.0"
+    "description": "Use Google Antigravity (the agy CLI) from inside Claude Code: delegate tasks, get a cross-model second opinion, and run reviews.",
+    "version": "0.2.0"
   },
   "plugins": [
     {
       "name": "antigravity",
-      "description": "Delegate to and review with Google's Antigravity CLI (agy / Gemini 3.5) without leaving Claude Code.",
-      "version": "0.1.0",
+      "description": "Delegate to and review with Google's Antigravity CLI (agy) without leaving Claude Code.",
+      "version": "0.2.0",
       "author": {
         "name": "Idun Labs",
         "url": "https://idunplatform.com"
@@ -23,7 +24,6 @@
         "antigravity",
         "agy",
         "gemini",
-        "gemini-3",
         "claude-code",
         "code-review",
         "agent",

@@ -27,10 +27,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate JSON manifests parse
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Claude Code (for manifest validation)
+        run: npm install -g @anthropic-ai/claude-code
+
+      # --strict fails on unrecognized fields and missing metadata that the runtime
+      # would otherwise tolerate, which is what catches a typo before it ships.
+      - name: Validate manifests against the Claude Code schema
         run: |
-          node -e "JSON.parse(require('fs').readFileSync('.claude-plugin/marketplace.json','utf8')); console.log('marketplace.json OK')"
-          node -e "JSON.parse(require('fs').readFileSync('plugins/antigravity/.claude-plugin/plugin.json','utf8')); console.log('plugin.json OK')"
+          claude plugin validate . --strict
+          claude plugin validate plugins/antigravity --strict
+
       - name: Check every command/agent/skill file has YAML frontmatter
         run: |
           fail=0
