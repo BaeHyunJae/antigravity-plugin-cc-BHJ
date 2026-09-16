@@ -7,3 +7,5 @@ tmp/
 coverage/
 *.tsbuildinfo
 Context/
+
+.claude/skills/
