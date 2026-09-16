@@ -2,6 +2,7 @@
 description: Show running and recent Antigravity jobs for this repo.
 argument-hint: "[job-id]"
 allowed-tools: Bash(node:*)
+disable-model-invocation: true
 ---
 
 List background Antigravity jobs for the current repo, or show one job when you pass a `[job-id]`.

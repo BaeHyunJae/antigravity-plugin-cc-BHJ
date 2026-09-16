@@ -2,6 +2,7 @@
 description: Continue the most recent Antigravity (Gemini 3.5) conversation with a follow-up.
 argument-hint: "[--conversation <id>] [--background] [--model <slug>] [follow-up instruction]"
 allowed-tools: Bash(node:*)
+disable-model-invocation: true
 ---
 
 Push a follow-up to the most recent Antigravity conversation (or a specific one with `--conversation <id>`). Handy right after a `/antigravity:delegate` or `/antigravity:review` when you want to keep the same Gemini 3.5 thread instead of starting fresh.

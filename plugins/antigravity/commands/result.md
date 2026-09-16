@@ -2,6 +2,7 @@
 description: Show the final output (and conversation id) of a finished Antigravity job.
 argument-hint: "[job-id]"
 allowed-tools: Bash(node:*)
+disable-model-invocation: true
 ---
 
 Print the final output of a finished background Antigravity job. Defaults to the latest job; pass a `[job-id]` to target a specific one. The output includes the conversation id and a resume hint so you can keep the thread going.

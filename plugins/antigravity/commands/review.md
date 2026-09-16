@@ -2,6 +2,7 @@
 description: Cross-model code review of your changes by Gemini 3.5 (read-only, contained).
 argument-hint: "[--base <ref>] [--background] [--model <slug>] [focus text]"
 allowed-tools: Bash(node:*)
+disable-model-invocation: true
 ---
 
 Get a second pair of eyes on your work. This runs a **read-only** review of your current changes through Antigravity (Gemini 3.5) and brings the findings straight back into Claude Code. It is sandboxed — it reads the diff and reports, it never edits files or runs commands against your tree.

@@ -2,6 +2,7 @@
 description: Cancel a running background Antigravity job.
 argument-hint: "[job-id]"
 allowed-tools: Bash(node:*)
+disable-model-invocation: true
 ---
 
 Cancel a running background Antigravity job. Defaults to the latest running job; pass a `[job-id]` to target a specific one.
